@@ -14,9 +14,9 @@ static const char *TAG = "i2s_output";
 #define I2S_DOUT_PIN_KEY "dout_pin"
 
 // Default pins (as per our pin assignments)
-#define DEFAULT_BCK_PIN   16
-#define DEFAULT_WS_PIN    17
-#define DEFAULT_DOUT_PIN  18
+#define DEFAULT_BCK_PIN   (GPIO_NUM_26)
+#define DEFAULT_WS_PIN    (GPIO_NUM_25)
+#define DEFAULT_DOUT_PIN  (GPIO_NUM_22)
 
 static i2s_chan_handle_t tx_handle = NULL;
 

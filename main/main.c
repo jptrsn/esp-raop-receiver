@@ -29,15 +29,18 @@ static bool raop_cmd_handler(raop_event_t event, ...)
 
     switch (event) {
         case RAOP_SETUP: {
+            ESP_LOGI(TAG, "PSRAM total: %lu, free: %lu",
+                    heap_caps_get_total_size(MALLOC_CAP_SPIRAM),
+                    heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+
             uint8_t **buffer = va_arg(args, uint8_t**);
             size_t *size = va_arg(args, size_t*);
 
             ESP_LOGI(TAG, "RAOP: Setup - audio stream starting");
             ESP_LOGI(TAG, "Free heap: %lu bytes", esp_get_free_heap_size());
 
-            // Pre-allocate buffer for RTP (352 frames * 4 bytes * frame_size)
-            // Allocate in PSRAM if available since it's large
-            *size = 352 * 4 * 1024; // Allocate generous buffer
+            *size = 352 * 4 * 1024;
+            ESP_LOGI(TAG, "Attempting to allocate %zu bytes in PSRAM", *size);
             *buffer = heap_caps_malloc(*size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 
             if (*buffer == NULL) {

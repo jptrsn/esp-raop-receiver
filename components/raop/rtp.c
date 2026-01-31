@@ -164,7 +164,7 @@ rtp_resp_t rtp_init(struct in_addr peer, int latency,
     ctx->xTaskBuffer = (StaticTask_t*) heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 	ctx->thread = xTaskCreateStaticPinnedToCore( (TaskFunction_t) rtp_thread, "rtp_thread", RTP_STACK_SIZE, ctx,
 											  ESP_TASK_PRIO_MIN + 2 + 1, ctx->xStack, ctx->xTaskBuffer,
-											  tskNO_AFFINITY);
+											  1);  // Core 1 (APP_CPU)
 
 	return resp;
 
@@ -199,11 +199,8 @@ void rtp_end(rtp_t *ctx)
 
 	if (ctx->decrypt.aeskey) {
 		mbedtls_aes_free(&ctx->decrypt.ctx);
-		free(ctx->decrypt.aeskey);
 	}
 
-	if (ctx->decrypt.aesiv) free(ctx->decrypt.aesiv);
-	if (ctx->decrypt.fmtp) free(ctx->decrypt.fmtp);
 	if (ctx->record.buf) free(ctx->record.buf);
 
 	free(ctx);
