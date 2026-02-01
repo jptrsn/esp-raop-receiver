@@ -108,9 +108,10 @@ static bool raop_cmd_handler(raop_event_t event, ...)
 }
 
 // RAOP data callback - this is where audio PCM data arrives
-static void raop_data_handler(uint8_t *data, size_t len)
+static void raop_data_handler(const uint8_t *data, size_t len, uint32_t playtime)
 {
     // Write audio data to I2S
+    // playtime parameter available but not used for now
     i2s_output_write(data, len);
 }
 

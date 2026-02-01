@@ -136,9 +136,11 @@ struct raop_ctx_s *raop_create(uint32_t host, char *name,
 	LOG_INFO("starting mDNS with %s", id);
 	mdns_service_add(id, "_raop", "_tcp", ctx->port, (mdns_txt_item_t*) txt, sizeof(txt) / sizeof(mdns_txt_item_t));
 
-    ctx->xTaskBuffer = (StaticTask_t*) heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  ctx->xTaskBuffer = (StaticTask_t*) heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+	BaseType_t core_id = (CONFIG_PTHREAD_TASK_CORE_DEFAULT == -1) ? tskNO_AFFINITY : CONFIG_PTHREAD_TASK_CORE_DEFAULT;
 	ctx->thread = xTaskCreateStaticPinnedToCore( (TaskFunction_t) rtsp_thread, "RTSP", RTSP_STACK_SIZE, ctx,
-                                             ESP_TASK_PRIO_MIN + 2, ctx->xStack, ctx->xTaskBuffer, tskNO_AFFINITY);
+																							ESP_TASK_PRIO_MIN + 2, ctx->xStack, ctx->xTaskBuffer,
+																							tskNO_AFFINITY);
 
 	return ctx;
 }
@@ -364,6 +366,7 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 		for (n = strlen(data_b64) - 1; n > 0 && data_b64[n] == '='; data_b64[n--] = '\0');
 
 		kd_add(resp, "Apple-Response", data_b64);
+		LOG_INFO("[%p]: Apple-Response: %s", ctx, data_b64);
 
 		if (p) free(p);
 		if (buf_pad) free(buf_pad);
@@ -661,11 +664,31 @@ static char *rsa_apply(unsigned char *input, int inlen, int *outlen, int mode)
 
 	mbedtls_pk_context pkctx;
 	mbedtls_rsa_context *trsa;
+	mbedtls_entropy_context entropy;
+	mbedtls_ctr_drbg_context ctr_drbg;
+	const char *pers = "rsa_encrypt";
 	size_t olen;
+	int rc;
+
+	// Initialize RNG (required for mbedtls v3)
+	mbedtls_entropy_init(&entropy);
+	mbedtls_ctr_drbg_init(&ctr_drbg);
+	mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,
+	                      (const unsigned char *)pers, strlen(pers));
 
 	mbedtls_pk_init(&pkctx);
-	mbedtls_pk_parse_key(&pkctx, (unsigned char *)super_secret_key,
-		sizeof(super_secret_key), NULL, 0, NULL, NULL);
+
+	// Parse key with RNG (mbedtls v3 requires it)
+	rc = mbedtls_pk_parse_key(&pkctx, (unsigned char *)super_secret_key,
+	                          sizeof(super_secret_key), NULL, 0,
+	                          mbedtls_ctr_drbg_random, &ctr_drbg);
+	if (rc != 0) {
+		LOG_ERROR("Error %d parsing private key", rc);
+		mbedtls_ctr_drbg_free(&ctr_drbg);
+		mbedtls_entropy_free(&entropy);
+		mbedtls_pk_free(&pkctx);
+		return NULL;
+	}
 
 	uint8_t *outbuf = NULL;
 	trsa = mbedtls_pk_rsa(pkctx);
@@ -674,20 +697,39 @@ static char *rsa_apply(unsigned char *input, int inlen, int *outlen, int mode)
 	case RSA_MODE_AUTH:
 		mbedtls_rsa_set_padding(trsa, MBEDTLS_RSA_PKCS_V15, MBEDTLS_MD_NONE);
 		outbuf = malloc(mbedtls_rsa_get_len(trsa));
-		mbedtls_rsa_pkcs1_encrypt(trsa, NULL, NULL, inlen, input, outbuf);
-		*outlen = mbedtls_rsa_get_len(trsa);
+		rc = mbedtls_rsa_pkcs1_encrypt(trsa, mbedtls_ctr_drbg_random, &ctr_drbg,
+		                               inlen, input, outbuf);
+		if (rc != 0) {
+			LOG_ERROR("RSA encrypt error %d", rc);
+			free(outbuf);
+			outbuf = NULL;
+			*outlen = 0;
+		} else {
+			*outlen = mbedtls_rsa_get_len(trsa);
+		}
 		break;
+
 	case RSA_MODE_KEY:
 		mbedtls_rsa_set_padding(trsa, MBEDTLS_RSA_PKCS_V21, MBEDTLS_MD_SHA1);
 		outbuf = malloc(mbedtls_rsa_get_len(trsa));
-		mbedtls_rsa_pkcs1_decrypt(trsa, NULL, NULL, &olen, input, outbuf, mbedtls_rsa_get_len(trsa));
-		*outlen = olen;
+		rc = mbedtls_rsa_pkcs1_decrypt(trsa, mbedtls_ctr_drbg_random, &ctr_drbg,
+		                               &olen, input, outbuf, mbedtls_rsa_get_len(trsa));
+		if (rc != 0) {
+			LOG_ERROR("RSA decrypt error %d", rc);
+			free(outbuf);
+			outbuf = NULL;
+			*outlen = 0;
+		} else {
+			*outlen = olen;
+		}
 		break;
 	}
 
+	mbedtls_ctr_drbg_free(&ctr_drbg);
+	mbedtls_entropy_free(&entropy);
 	mbedtls_pk_free(&pkctx);
 
-	return (char*) outbuf;
+	return (char *)outbuf;
 }
 
 #define DECODE_ERROR 0xffffffff

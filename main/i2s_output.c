@@ -99,9 +99,16 @@ void i2s_output_init(void)
 
 void i2s_output_write(const uint8_t *data, size_t len)
 {
+    static uint32_t call_count = 0;
+
     if (!tx_handle) {
         ESP_LOGW(TAG, "I2S not initialized");
         return;
+    }
+
+    // Log every 100th call to avoid spam
+    if (call_count++ % 100 == 0) {
+        ESP_LOGI(TAG, "Writing %zu bytes to I2S (call #%lu)", len, call_count);
     }
 
     size_t bytes_written = 0;

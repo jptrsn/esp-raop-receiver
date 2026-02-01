@@ -4,8 +4,22 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <netinet/in.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/timers.h"
 
 #define NFREE(p) if (p) { free(p); p = NULL; }
+
+// Delayed free for FreeRTOS TCB cleanup
+#define SAFE_PTR_FREE(P)							\
+	do {											\
+		TimerHandle_t timer = xTimerCreate("cleanup", pdMS_TO_TICKS(10000), pdFALSE, P, _delayed_free);	\
+		xTimerStart(timer, portMAX_DELAY);			\
+	} while (0)
+
+static inline void _delayed_free(TimerHandle_t xTimer) {
+	free(pvTimerGetTimerID(xTimer));
+	xTimerDelete(xTimer, portMAX_DELAY);
+}
 
 typedef struct {
     char *key;
