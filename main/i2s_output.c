@@ -7,6 +7,9 @@
 #include "freertos/FreeRTOS.h"
 
 static const char *TAG = "i2s_output";
+static float current_volume = 1.0f;
+static int16_t *volume_buffer = NULL;
+static size_t volume_buffer_size = 0;
 
 #define I2S_NAMESPACE "i2s_config"
 #define I2S_BCK_PIN_KEY "bck_pin"
@@ -32,6 +35,12 @@ static int load_pin_config(const char *key, int default_value)
     }
 
     return (int)pin_value;
+}
+
+void i2s_output_set_volume(float volume)
+{
+    current_volume = (volume < 0.0f) ? 0.0f : (volume > 1.0f) ? 1.0f : volume;
+    ESP_LOGI(TAG, "Volume set to %.2f (%d%%)", current_volume, (int)(current_volume * 100));
 }
 
 void i2s_output_init(void)
@@ -106,13 +115,43 @@ void i2s_output_write(const uint8_t *data, size_t len)
         return;
     }
 
-    // Log every 100th call to avoid spam
+    // Ensure buffer is large enough (allocate once, reuse)
+    if (volume_buffer_size < len) {
+        if (volume_buffer) free(volume_buffer);
+        volume_buffer = malloc(len);
+        if (!volume_buffer) {
+            ESP_LOGE(TAG, "Failed to allocate volume buffer");
+            return;
+        }
+        volume_buffer_size = len;
+    }
+
+    const uint8_t *output_data;
+
+    // Skip scaling if at full volume
+    if (current_volume >= 0.99f) {
+        output_data = data;
+    } else {
+        // Apply volume scaling
+        int16_t *samples = (int16_t *)data;
+        size_t sample_count = len / sizeof(int16_t);
+
+        for (size_t i = 0; i < sample_count; i++) {
+            int32_t scaled_sample = (int32_t)(samples[i] * current_volume);
+            if (scaled_sample > 32767) scaled_sample = 32767;
+            if (scaled_sample < -32768) scaled_sample = -32768;
+            volume_buffer[i] = (int16_t)scaled_sample;
+        }
+        output_data = (uint8_t *)volume_buffer;
+    }
+
     if (call_count++ % 100 == 0) {
-        ESP_LOGI(TAG, "Writing %zu bytes to I2S (call #%lu)", len, call_count);
+        ESP_LOGI(TAG, "Writing %zu bytes to I2S (call #%lu, vol=%.2f)",
+                 len, call_count, current_volume);
     }
 
     size_t bytes_written = 0;
-    esp_err_t ret = i2s_channel_write(tx_handle, data, len, &bytes_written, portMAX_DELAY);
+    esp_err_t ret = i2s_channel_write(tx_handle, output_data, len, &bytes_written, portMAX_DELAY);
 
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "I2S write failed: %s", esp_err_to_name(ret));

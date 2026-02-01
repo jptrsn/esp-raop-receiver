@@ -13,4 +13,7 @@ void i2s_output_write(const uint8_t *data, size_t len);
 // Stop I2S output
 void i2s_output_deinit(void);
 
+// Set I2S volume
+void i2s_output_set_volume(float volume);
+
 #endif // I2S_OUTPUT_H

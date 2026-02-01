@@ -66,8 +66,9 @@ static bool raop_cmd_handler(raop_event_t event, ...)
             break;
 
         case RAOP_VOLUME: {
-            float volume = va_arg(args, double); // float promoted to double in varargs
+            float volume = va_arg(args, double);
             ESP_LOGI(TAG, "RAOP: Volume changed to %.2f", volume);
+            i2s_output_set_volume(volume);
             break;
         }
 
