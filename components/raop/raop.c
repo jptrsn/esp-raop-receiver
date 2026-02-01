@@ -265,8 +265,8 @@ bool raop_cmd(struct raop_ctx_s *ctx, raop_event_t event, void *param) {
 		kd_free(headers);
         success = true;
 	} else {
-        LOG_INFO("[%p]: can't connect to remote for %s", ctx, command);
-    }
+		LOG_INFO("[%p]: can't connect to remote for %s", ctx, command);
+	}
 
 	free(command);
 	closesocket(sock);
@@ -326,7 +326,7 @@ static void rtsp_thread(void *arg) {
 static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 {
 	char *buf = NULL, *body = NULL, method[16] = "";
-	key_data_t headers[16], resp[8] = { {NULL, NULL} };
+	key_data_t headers[32], resp[16] = { {NULL, NULL} };
 	int len;
 	bool success = true;
 

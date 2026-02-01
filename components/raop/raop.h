@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "raop_sink.h"
+#include "util.h"
 
 struct raop_ctx_s;
 

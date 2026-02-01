@@ -213,6 +213,12 @@ bool http_parse(int sock, char *method, key_data_t *rkd, char **body, int *len)
 
 	while (read_line(sock, line, sizeof(line), timeout) > 0) {
 
+		// Check for max headers (leave room for NULL terminator)
+    if (i >= 31) {  // Assuming max 32 headers
+        LOG_ERROR("Too many headers, ignoring rest");
+        break;
+    }
+
 		LOG_SDEBUG("sock: %u, received %s", line);
 
 		// line folding should be deprecated

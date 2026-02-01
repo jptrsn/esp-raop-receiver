@@ -14,6 +14,7 @@
 #include "esp_mac.h"
 #include "lwip/udp.h"
 #include "lwip/dns.h"
+#include "audio_buffer.h"
 
 static const char *TAG = "main";
 
@@ -49,7 +50,15 @@ static bool raop_cmd_handler(raop_event_t event, ...)
                 *size = 0;
             } else {
                 ESP_LOGI(TAG, "Allocated %zu byte audio buffer in PSRAM", *size);
+                ESP_LOGI(TAG, "PSRAM after RTP alloc - total: %lu, free: %lu",
+                        heap_caps_get_total_size(MALLOC_CAP_SPIRAM),
+                        heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
             }
+            audio_buffer_init();
+
+            ESP_LOGI(TAG, "PSRAM after audio_buffer_init - total: %lu, free: %lu",
+                        heap_caps_get_total_size(MALLOC_CAP_SPIRAM),
+                        heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
             break;
         }
 
@@ -59,10 +68,13 @@ static bool raop_cmd_handler(raop_event_t event, ...)
 
         case RAOP_STOP:
             ESP_LOGI(TAG, "RAOP: Stream stopped");
+            audio_buffer_flush();
+            audio_buffer_deinit();
             break;
 
         case RAOP_FLUSH:
             ESP_LOGI(TAG, "RAOP: Flush requested");
+            audio_buffer_flush();
             break;
 
         case RAOP_VOLUME: {
@@ -76,6 +88,47 @@ static bool raop_cmd_handler(raop_event_t event, ...)
             int current = va_arg(args, int);
             int total = va_arg(args, int);
             ESP_LOGI(TAG, "RAOP: Progress %d/%d ms", current, total);
+            break;
+        }
+
+        case RAOP_TIMING: {
+
+            if (!audio_buffer_is_ready()) break;
+            // Timing sync achieved - calculate drift and correct
+            uint32_t frames_buffered, head_playtime;
+            audio_buffer_get_timing(&frames_buffered, &head_playtime);
+
+            if (frames_buffered == 0) break;
+
+            uint32_t now = gettime_ms();
+
+            // How long until the buffered audio finishes playing?
+            // Each frame is ~8ms (352 samples at 44100Hz)
+            uint32_t buffer_duration_ms = (frames_buffered * 352 * 1000) / 44100;
+            uint32_t local_head_time = now + buffer_duration_ms;
+
+            // Compare to remote expected time
+            int32_t error = (int32_t)(head_playtime - local_head_time);
+
+            ESP_LOGD(TAG, "Timing: buffered=%u frames, local_head=%u, remote_head=%u, error=%d ms",
+                    frames_buffered, local_head_time, head_playtime, error);
+
+            // Correct if drift > 50ms
+            if (error < -50) {
+                // We're ahead, skip frames
+                uint32_t skip = (-error * 44100) / (352 * 1000);
+                audio_buffer_skip_frames(skip);
+            } else if (error > 50) {
+                // We're behind, pause (insert silence)
+                uint32_t pause = (error * 44100) / (352 * 1000);
+                audio_buffer_pause_frames(pause);
+            }
+
+            break;
+        }
+
+        case RAOP_STALLED:{
+            ESP_LOGW(TAG, "RAOP: Stream stalled - no packets received");
             break;
         }
 
@@ -99,9 +152,10 @@ static bool raop_cmd_handler(raop_event_t event, ...)
             break;
         }
 
-        default:
+        default: {
             ESP_LOGW(TAG, "RAOP: Unknown event %d", event);
             break;
+        }
     }
 
     va_end(args);
@@ -111,9 +165,10 @@ static bool raop_cmd_handler(raop_event_t event, ...)
 // RAOP data callback - this is where audio PCM data arrives
 static void raop_data_handler(const uint8_t *data, size_t len, uint32_t playtime)
 {
-    // Write audio data to I2S
-    // playtime parameter available but not used for now
-    i2s_output_write(data, len);
+    // Non-blocking write to buffer
+    if (!audio_buffer_write(data, len, playtime)) {
+        ESP_LOGW(TAG, "Failed to buffer audio frame");
+    }
 }
 
 static void start_mdns_service(void)

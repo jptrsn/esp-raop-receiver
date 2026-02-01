@@ -41,6 +41,7 @@ in_addr_t get_localhost(char **name);
 int shutdown_socket(int sd);
 int bind_socket(unsigned short *port, int mode);
 int conn_socket(unsigned short port);
+uint32_t gettime_ms(void);
 
 // String utilities
 char *strlwr(char *str);
