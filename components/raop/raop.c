@@ -327,8 +327,6 @@ static void apple_challenge(raop_ctx_t *ctx, int sock, key_data_t *req_headers, 
 	if (!hdr)
 		return;
 
-	LOG_INFO("[%p]: challenge %s", ctx, hdr);
-
 	// try to re-acquire IP address if we were missing it
 	if (S_ADDR(ctx->host) == INADDR_ANY) {
 		S_ADDR(ctx->host) = get_localhost(NULL);
@@ -352,8 +350,6 @@ static void apple_challenge(raop_ctx_t *ctx, int sock, key_data_t *req_headers, 
 			sprintf(hex_dump + (j * 2), "%02x", (unsigned char)data[j]);
 	}
 	hex_dump[64] = '\0';
-	LOG_INFO("  %s", hex_dump);
-
 	int n;
 	char *rsa_result = rsa_apply((unsigned char*) data, 32, &n, RSA_MODE_AUTH);
 
@@ -521,7 +517,6 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 			float volume;
 
 			sscanf(p, "%*[^:]:%f", &volume);
-			LOG_INFO("[%p]: SET PARAMETER volume %f", ctx, volume);
 			volume = (volume == -144.0) ? 0 : (1 + volume / 30);
 			success = ctx->cmd_cb(RAOP_VOLUME, volume);
 		} else if (body && (p = strcasestr(body, "progress")) != NULL) {
@@ -566,26 +561,11 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
     kd_add(resp, "Audio-Jack-Status", "connected; type=analog");
 	}
 
-	LOG_INFO("[%p]: Response headers for %s:", ctx, method);
-	int i = 0;
-	while (resp[i].key != NULL) {
-		LOG_INFO("  [%d] %s: %s", i, resp[i].key,
-				 resp[i].data ? resp[i].data : "<null>");
-		i++;
-	}
-	LOG_INFO("[%p]: Total headers: %d", ctx, i);
-
-	LOG_INFO("[%p]: About to send response for %s", ctx, method);
 	if (success) {
 		buf = http_send(sock, "RTSP/1.0 200 OK", resp);
 	} else {
 		buf = http_send(sock, "RTSP/1.0 503 ERROR", NULL);
 		closesocket(sock);
-	}
-	LOG_INFO("[%p]: Response sent successfully for %s", ctx, method);
-
-	if (strcmp(method, "OPTIONS")) {
-		LOG_INFO("[%p]: responding:\n%s", ctx, buf ? buf : "<void>");
 	}
 
 	if (body) free(body);
