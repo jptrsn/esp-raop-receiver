@@ -291,7 +291,7 @@ static int read_line(int fd, char *line, int maxlen, int timeout)
 		}
 
 		if (rval == 0) {
-			LOG_INFO("disconnected on the other end %u", fd);
+			LOG_INFO("disconnected on the other end %u (after reading %d chars)", fd, count);
 			return 0;
 		}
 
@@ -322,11 +322,15 @@ char *http_send(int sock, char *method, key_data_t *rkd)
 	len = sprintf(data, "%s\r\n%s\r\n", method, resp);
 	NFREE(resp);
 
+	LOG_SDEBUG("Sending HTTP response, length: %u", len);
 	sent = send(sock, data, len, 0);
 
 	if (sent != len) {
-		LOG_ERROR("HTTP send() error:%s %u (strlen=%u)", data, sent, len);
+		LOG_ERROR("HTTP send() error:%s %u (strlen=%u), errno=%d (%s)",
+		          data, sent, len, errno, strerror(errno));
 		NFREE(data);
+	} else {
+		LOG_SDEBUG("HTTP send successful: %u bytes", sent);
 	}
 
 	return data;

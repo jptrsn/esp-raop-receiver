@@ -321,6 +321,54 @@ static void rtsp_thread(void *arg) {
 	vTaskSuspend(NULL);
 }
 
+/*----------------------------------------------------------------------------*/
+static void apple_challenge(raop_ctx_t *ctx, int sock, key_data_t *req_headers, key_data_t *resp_headers) {
+	char *hdr = kd_lookup(req_headers, "Apple-Challenge");
+	if (!hdr)
+		return;
+
+	LOG_INFO("[%p]: challenge %s", ctx, hdr);
+
+	// try to re-acquire IP address if we were missing it
+	if (S_ADDR(ctx->host) == INADDR_ANY) {
+		S_ADDR(ctx->host) = get_localhost(NULL);
+		LOG_INFO("[%p]: IP was missing, trying to get it %s", ctx, inet_ntoa(ctx->host));
+	}
+
+	int chall_len;
+	char *buf_pad = NULL;
+
+	// need to pad the base64 string as apple devices don't
+	base64_pad(hdr, &buf_pad);
+
+	char data[32];
+	char *p = data + min(base64_decode(buf_pad, data), 32-10);
+	p = (char*) memcpy(p, &S_ADDR(ctx->host), 4) + 4;
+	p = (char*) memcpy(p, ctx->mac, 6) + 6;
+	memset(p, 0, 32 - (p - data));
+
+	char hex_dump[65];
+	for (int j = 0; j < 32; j++) {
+			sprintf(hex_dump + (j * 2), "%02x", (unsigned char)data[j]);
+	}
+	hex_dump[64] = '\0';
+	LOG_INFO("  %s", hex_dump);
+
+	int n;
+	char *rsa_result = rsa_apply((unsigned char*) data, 32, &n, RSA_MODE_AUTH);
+
+	char *data_b64 = NULL;
+	base64_encode(rsa_result, n, &data_b64);
+
+	// remove padding as well (seems to be optional now)
+	for (n = strlen(data_b64) - 1; n > 0 && data_b64[n] == '='; data_b64[n--] = '\0');
+
+	kd_add(resp_headers, "Apple-Response", data_b64);
+
+	if (rsa_result) free(rsa_result);
+	if (buf_pad) free(buf_pad);
+	if (data_b64) free(data_b64);
+}
 
 /*----------------------------------------------------------------------------*/
 static bool handle_rtsp(raop_ctx_t *ctx, int sock)
@@ -336,43 +384,14 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 		return false;
 	}
 
-	if (strcmp(method, "OPTIONS")) {
-		LOG_INFO("[%p]: received %s", ctx, method);
-	}
+	// Handle Apple-Challenge
+	apple_challenge(ctx, sock, headers, resp);
 
-	if ((buf = kd_lookup(headers, "Apple-Challenge")) != NULL) {
-		int n;
-		char *buf_pad, *p, *data_b64 = NULL, data[32];
+	// standard headers
+	kd_add(resp, "CSeq", kd_lookup(headers, "CSeq"));
+	kd_add(resp, "Server", "AirTunes/105.1");
 
-		LOG_INFO("[%p]: challenge %s", ctx, buf);
-
-		// try to re-acquire IP address if we were missing it
-		if (S_ADDR(ctx->host) == INADDR_ANY) {
-			S_ADDR(ctx->host) = get_localhost(NULL);
-			LOG_INFO("[%p]: IP was missing, trying to get it %s", ctx, inet_ntoa(ctx->host));
-		}
-
-		// need to pad the base64 string as apple device don't
-		base64_pad(buf, &buf_pad);
-
-		p = data + min(base64_decode(buf_pad, data), 32-10);
-		p = (char*) memcpy(p, &S_ADDR(ctx->host), 4) + 4;
-		p = (char*) memcpy(p, ctx->mac, 6) + 6;
-		memset(p, 0, 32 - (p - data));
-		p = rsa_apply((unsigned char*) data, 32, &n, RSA_MODE_AUTH);
-		n = base64_encode(p, n, &data_b64);
-
-		// remove padding as well (seems to be optional now)
-		for (n = strlen(data_b64) - 1; n > 0 && data_b64[n] == '='; data_b64[n--] = '\0');
-
-		kd_add(resp, "Apple-Response", data_b64);
-		LOG_INFO("[%p]: Apple-Response: %s", ctx, data_b64);
-
-		if (p) free(p);
-		if (buf_pad) free(buf_pad);
-		if (data_b64) free(data_b64);
-	}
-
+	// method-specific headers
 	if (!strcmp(method, "OPTIONS")) {
 
 		kd_add(resp, "Public", "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER");
@@ -436,7 +455,6 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 		uint8_t *buffer = NULL;
 		size_t size = 0;
 
-		// we are about to stream, do something if needed and optionally give buffers to play with
 		success = ctx->cmd_cb(RAOP_SETUP, &buffer, &size);
 
 		if ((p = strcasestr(buf, "timing_port")) != NULL) sscanf(p, "%*[^=]=%hu", &tport);
@@ -450,7 +468,6 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 		if ( (cport * tport * rtp.cport * rtp.tport * rtp.aport) != 0 && rtp.ctx) {
 			char *transport;
 			asprintf(&transport, "RTP/AVP/UDP;unicast;mode=record;control_port=%u;timing_port=%u;server_port=%u", rtp.cport, rtp.tport, rtp.aport);
-			LOG_DEBUG("[%p]: audio=(%hu:%hu), timing=(%hu:%hu), control=(%hu:%hu)", ctx, 0, rtp.aport, tport, rtp.tport, cport, rtp.cport);
 			kd_add(resp, "Transport", transport);
 			kd_add(resp, "Session", "DEADBEEF");
 			free(transport);
@@ -487,7 +504,6 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 		if ((p = strcasestr(buf, "seq")) != NULL) sscanf(p, "%*[^=]=%hu", &seqno);
 		if ((p = strcasestr(buf, "rtptime")) != NULL) sscanf(p, "%*[^=]=%u", &rtptime);
 
-		// only send FLUSH if useful (discards frames above buffer head and top)
 		if (ctx->rtp && rtp_flush(ctx->rtp, seqno, rtptime, true)) {
 			success = ctx->cmd_cb(RAOP_FLUSH);
 			rtp_flush_release(ctx->rtp);
@@ -511,7 +527,6 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 		} else if (body && (p = strcasestr(body, "progress")) != NULL) {
 			int start, current, stop = 0;
 
-			// we want ms, not s
 			sscanf(p, "%*[^:]:%u/%u/%u", &start, &current, &stop);
 			current = ((current - start) / 44100) * 1000;
 			if (stop) stop = ((stop - start) / 44100) * 1000;
@@ -547,16 +562,27 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 		}
 	}
 
-	// don't need to free "buf" because kd_lookup return a pointer, not a strdup
-	kd_add(resp, "Audio-Jack-Status", "connected; type=analog");
-	kd_add(resp, "CSeq", kd_lookup(headers, "CSeq"));
+	if (strcmp(method, "OPTIONS")) {
+    kd_add(resp, "Audio-Jack-Status", "connected; type=analog");
+	}
 
+	LOG_INFO("[%p]: Response headers for %s:", ctx, method);
+	int i = 0;
+	while (resp[i].key != NULL) {
+		LOG_INFO("  [%d] %s: %s", i, resp[i].key,
+				 resp[i].data ? resp[i].data : "<null>");
+		i++;
+	}
+	LOG_INFO("[%p]: Total headers: %d", ctx, i);
+
+	LOG_INFO("[%p]: About to send response for %s", ctx, method);
 	if (success) {
 		buf = http_send(sock, "RTSP/1.0 200 OK", resp);
 	} else {
 		buf = http_send(sock, "RTSP/1.0 503 ERROR", NULL);
 		closesocket(sock);
 	}
+	LOG_INFO("[%p]: Response sent successfully for %s", ctx, method);
 
 	if (strcmp(method, "OPTIONS")) {
 		LOG_INFO("[%p]: responding:\n%s", ctx, buf ? buf : "<void>");
@@ -697,15 +723,20 @@ static char *rsa_apply(unsigned char *input, int inlen, int *outlen, int mode)
 	case RSA_MODE_AUTH:
 		mbedtls_rsa_set_padding(trsa, MBEDTLS_RSA_PKCS_V15, MBEDTLS_MD_NONE);
 		outbuf = malloc(mbedtls_rsa_get_len(trsa));
-		rc = mbedtls_rsa_pkcs1_encrypt(trsa, mbedtls_ctr_drbg_random, &ctr_drbg,
-		                               inlen, input, outbuf);
+
+		// Use PKCS#1 v1.5 signature (private key operation)
+		size_t sig_len = 0;
+		rc = mbedtls_pk_sign(&pkctx, MBEDTLS_MD_NONE, input, inlen,
+												outbuf, mbedtls_rsa_get_len(trsa), &sig_len,
+												mbedtls_ctr_drbg_random, &ctr_drbg);
+
 		if (rc != 0) {
-			LOG_ERROR("RSA encrypt error %d", rc);
+			LOG_ERROR("RSA sign error %d", rc);
 			free(outbuf);
 			outbuf = NULL;
 			*outlen = 0;
 		} else {
-			*outlen = mbedtls_rsa_get_len(trsa);
+			*outlen = sig_len;
 		}
 		break;
 
