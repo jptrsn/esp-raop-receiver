@@ -146,6 +146,7 @@ typedef struct rtp_s {
     int stalled;
 	raop_data_cb_t data_cb;
 	raop_cmd_cb_t cmd_cb;
+	uint8_t *user_buffer;
 } rtp_t;
 
 
@@ -260,6 +261,7 @@ rtp_resp_t rtp_init(struct in_addr host, int latency, char *aeskey, char *aesiv,
 	rc &= ctx->alac_codec != NULL;
 
 	buffer_alloc(ctx->audio_buffer, ctx->frame_size*4, buffer, size);
+	ctx->user_buffer = buffer;
 
 	// create rtp ports
 	for (i = 0; i < 3; i++) {
@@ -323,6 +325,8 @@ void rtp_end(rtp_t *ctx)
 
 	pthread_mutex_destroy(&ctx->ab_mutex);
 	buffer_release(ctx->audio_buffer);
+
+	if (ctx->user_buffer) free(ctx->user_buffer);
 
 	free(ctx);
 

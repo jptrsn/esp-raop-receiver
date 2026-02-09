@@ -27,6 +27,7 @@ static struct {
     SemaphoreHandle_t mutex;
     TaskHandle_t task;
     bool running;
+    uint32_t start_time;
 } audio_buf = {0};
 
 static struct {
@@ -42,6 +43,12 @@ static void audio_output_task(void *arg) {
     ESP_LOGI(TAG, "Audio output task started");
 
     while (audio_buf.running) {
+        // Wait until we have a start time
+        if (audio_buf.start_time == 0) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+
         // Handle skip frames
         if (timing_correction.skip_frames > 0) {
             xSemaphoreTake(audio_buf.mutex, portMAX_DELAY);
@@ -72,6 +79,15 @@ static void audio_output_task(void *arg) {
         if (audio_buf.read_idx != audio_buf.write_idx) {
             frame = &audio_buf.frames[audio_buf.read_idx];
             if (frame->ready) {
+                // Check if it's time to play this frame
+                uint32_t now = gettime_ms();
+                if (now < frame->playtime) {
+                    // Too early, wait
+                    xSemaphoreGive(audio_buf.mutex);
+                    vTaskDelay(pdMS_TO_TICKS(5));
+                    continue;
+                }
+
                 uint8_t data[MAX_FRAME_SIZE];
                 memcpy(data, frame->data, frame->len);
                 size_t len = frame->len;
@@ -92,14 +108,20 @@ static void audio_output_task(void *arg) {
         }
     }
 
-    vTaskDelete(NULL);
+    ESP_LOGI(TAG, "Audio output task exiting");
+    vTaskSuspend(NULL);
 }
 
 void audio_buffer_init(void) {
-    // Clean up if already initialized
-    if (audio_buf.running) {
-        audio_buffer_deinit();
+    // If already initialized, just return
+    if (audio_buf.frames && audio_buf.mutex) {
+        ESP_LOGI(TAG, "Audio buffer already initialized");
+        return;
     }
+
+    // Clean up any partial state
+    if (audio_buf.frames) free(audio_buf.frames);
+    if (audio_buf.mutex) vSemaphoreDelete(audio_buf.mutex);
 
     memset(&audio_buf, 0, sizeof(audio_buf));
 
@@ -114,7 +136,31 @@ void audio_buffer_init(void) {
     memset(audio_buf.frames, 0, BUFFER_FRAMES * sizeof(audio_frame_t));
 
     audio_buf.mutex = xSemaphoreCreateMutex();
+    if (!audio_buf.mutex) {
+        ESP_LOGE(TAG, "Failed to create mutex");
+        free(audio_buf.frames);
+        audio_buf.frames = NULL;
+        return;
+    }
+
+    ESP_LOGI(TAG, "Audio buffer initialized");
+}
+
+void audio_buffer_start(void) {
+    if (!audio_buf.frames || !audio_buf.mutex) {
+        ESP_LOGE(TAG, "Cannot start: buffer not initialized");
+        return;
+    }
+
+    if (audio_buf.running) {
+        ESP_LOGW(TAG, "Audio buffer already running");
+        return;
+    }
+
     audio_buf.running = true;
+    audio_buf.read_idx = 0;
+    audio_buf.write_idx = 0;
+    audio_buf.start_time = 0;
 
     xTaskCreatePinnedToCore(
         audio_output_task,
@@ -126,10 +172,42 @@ void audio_buffer_init(void) {
         1
     );
 
-    ESP_LOGI(TAG, "Audio buffer initialized");
+    ESP_LOGI(TAG, "Audio playback started");
+}
+
+void audio_buffer_set_start_time(uint32_t playtime) {
+    if (!audio_buf.running) {
+        ESP_LOGW(TAG, "Cannot set start time: buffer not running");
+        return;
+    }
+
+    audio_buf.start_time = playtime;
+    ESP_LOGI(TAG, "Start time set to %u ms", playtime);
+}
+
+void audio_buffer_stop(void) {
+    if (!audio_buf.running) {
+        ESP_LOGI(TAG, "Audio buffer already stopped");
+        return;
+    }
+
+    audio_buf.running = false;
+
+    if (audio_buf.task) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelete(audio_buf.task);
+        audio_buf.task = NULL;
+    }
+
+    ESP_LOGI(TAG, "Audio playback stopped");
 }
 
 bool audio_buffer_write(const uint8_t *data, size_t len, uint32_t playtime) {
+    if (!audio_buf.frames || !audio_buf.mutex) {
+        ESP_LOGW(TAG, "Buffer not initialized, dropping frame");
+        return false;
+    }
+
     if (len > MAX_FRAME_SIZE) {
         ESP_LOGE(TAG, "Frame too large: %zu bytes", len);
         return false;
@@ -184,17 +262,22 @@ void audio_buffer_flush(void) {
 }
 
 void audio_buffer_deinit(void) {
-    audio_buf.running = false;
-    if (audio_buf.task) {
-      vTaskDelay(pdMS_TO_TICKS(100));
+    // Stop playback if running
+    if (audio_buf.running) {
+        audio_buffer_stop();
     }
+
     if (audio_buf.mutex) {
-      vSemaphoreDelete(audio_buf.mutex);
+        vSemaphoreDelete(audio_buf.mutex);
+        audio_buf.mutex = NULL;
     }
+
     if (audio_buf.frames) {
-      free(audio_buf.frames);
-      audio_buf.frames = NULL;
+        free(audio_buf.frames);
+        audio_buf.frames = NULL;
     }
+
+    ESP_LOGI(TAG, "Audio buffer deinitialized");
 }
 
 void audio_buffer_get_timing(uint32_t *frames_buffered, uint32_t *head_playtime) {

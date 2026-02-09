@@ -37,39 +37,39 @@ static bool raop_cmd_handler(raop_event_t event, ...)
             uint8_t **buffer = va_arg(args, uint8_t**);
             size_t *size = va_arg(args, size_t*);
 
-            ESP_LOGI(TAG, "RAOP: Setup - audio stream starting");
-            ESP_LOGI(TAG, "Free heap: %lu bytes", esp_get_free_heap_size());
+            ESP_LOGI(TAG, "RAOP: Setup - negotiating connection");
 
             *size = 352 * 4 * 1024;
-            ESP_LOGI(TAG, "Attempting to allocate %zu bytes in PSRAM", *size);
             *buffer = heap_caps_malloc(*size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 
             if (*buffer == NULL) {
-                ESP_LOGE(TAG, "Failed to allocate audio buffer!");
-                *buffer = NULL;
+                ESP_LOGE(TAG, "Failed to allocate RTP buffer!");
                 *size = 0;
             } else {
-                ESP_LOGI(TAG, "Allocated %zu byte audio buffer in PSRAM", *size);
-                ESP_LOGI(TAG, "PSRAM after RTP alloc - total: %lu, free: %lu",
-                        heap_caps_get_total_size(MALLOC_CAP_SPIRAM),
-                        heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+                ESP_LOGI(TAG, "Allocated %zu byte RTP buffer in PSRAM", *size);
             }
-            audio_buffer_init();
 
-            ESP_LOGI(TAG, "PSRAM after audio_buffer_init - total: %lu, free: %lu",
-                        heap_caps_get_total_size(MALLOC_CAP_SPIRAM),
-                        heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+            // Allocate audio buffer
+            audio_buffer_init();
             break;
         }
 
         case RAOP_STREAM:
-            ESP_LOGI(TAG, "RAOP: Stream started");
+            ESP_LOGI(TAG, "RAOP: Stream starting - beginning playback");
+            audio_buffer_start();
             break;
 
+        case RAOP_PLAY: {
+            uint32_t playtime = va_arg(args, uint32_t);
+            ESP_LOGI(TAG, "RAOP: First frame ready at playtime %u ms", playtime);
+            audio_buffer_set_start_time(playtime);
+            break;
+        }
+
         case RAOP_STOP:
-            ESP_LOGI(TAG, "RAOP: Stream stopped");
-            audio_buffer_flush();
-            audio_buffer_deinit();
+            ESP_LOGI(TAG, "RAOP: Stream stopped - stopping playback");
+            audio_buffer_stop();
+            // Note: buffer stays allocated for next stream!
             break;
 
         case RAOP_FLUSH:
