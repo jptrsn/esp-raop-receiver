@@ -48,7 +48,6 @@ static void raop_event_handler(raop_event_t event, void *event_data, void *user_
         case RAOP_EVENT_VOLUME: {
             float volume = *(float *)event_data;
             ESP_LOGI(TAG, "AirPlay: volume %.2f", volume);
-            i2s_output_set_volume(volume);
             break;
         }
         case RAOP_EVENT_METADATA: {

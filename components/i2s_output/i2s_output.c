@@ -146,8 +146,8 @@ void i2s_output_write(const uint8_t *data, size_t len)
     }
 
     if (call_count++ % 100 == 0) {
-        ESP_LOGI(TAG, "Writing %zu bytes to I2S (call #%lu, vol=%.2f)",
-                 len, call_count, current_volume);
+        ESP_LOGI(TAG, "Writing %zu bytes to I2S (call #%lu)",
+                 len, call_count);
     }
 
     size_t bytes_written = 0;

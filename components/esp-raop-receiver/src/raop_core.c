@@ -10,6 +10,7 @@
 #include <stdarg.h>
 
 static const char *TAG = "raop_core";
+#define MAX_FRAME_SIZE 2048
 
 // The opaque handle consumers get back from raop_init()
 struct raop_handle_s {
@@ -178,14 +179,35 @@ static bool internal_cmd_cb(raop_internal_event_t event, ...) {
     return true;
 }
 
-static void internal_data_cb(const uint8_t *data, size_t len, uint32_t playtime) {
-    if (!audio_buffer_write(data, len, playtime)) {
-        ESP_LOGW(TAG, "Failed to buffer audio frame");
+// ---- Single instance support ----
+raop_handle_t *s_handle = NULL;
+
+static void apply_software_volume(const uint8_t *data, size_t len, uint8_t *out, float volume) {
+    const int16_t *samples = (const int16_t *)data;
+    int16_t *out_samples = (int16_t *)out;
+    size_t count = len / sizeof(int16_t);
+    for (size_t i = 0; i < count; i++) {
+        int32_t scaled = (int32_t)(samples[i] * volume);
+        if (scaled > 32767) scaled = 32767;
+        if (scaled < -32768) scaled = -32768;
+        out_samples[i] = (int16_t)scaled;
     }
 }
 
-// ---- Single instance support ----
-raop_handle_t *s_handle = NULL;
+static void internal_data_cb(const uint8_t *data, size_t len, uint32_t playtime) {
+    if (s_handle && s_handle->config.volume_mode == RAOP_VOLUME_SOFTWARE
+            && s_handle->volume < 0.99f) {
+        static uint8_t scaled[MAX_FRAME_SIZE];
+        apply_software_volume(data, len, scaled, s_handle->volume);
+        if (!audio_buffer_write(scaled, len, playtime)) {
+            ESP_LOGW(TAG, "Failed to buffer audio frame");
+        }
+    } else {
+        if (!audio_buffer_write(data, len, playtime)) {
+            ESP_LOGW(TAG, "Failed to buffer audio frame");
+        }
+    }
+}
 
 // ---- Public API implementation ----
 
