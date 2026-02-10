@@ -5,7 +5,6 @@ idf_component_register(
         "src/rtp.c"
         "src/util.c"
         "src/dmap_parser.c"
-        "src/raop_sink.c"
         "src/audio_buffer.c"
     INCLUDE_DIRS
         "include"
