@@ -22,6 +22,12 @@ static httpd_handle_t web_server = NULL;
 static struct raop_ctx_s *raop_ctx = NULL;
 static struct udp_pcb *dns_pcb = NULL;
 
+// Audio output callback - forwards to I2S hardware
+static void audio_output_callback(const uint8_t *data, size_t len, void *user_ctx)
+{
+    i2s_output_write(data, len);
+}
+
 // RAOP command callback
 static bool raop_cmd_handler(raop_event_t event, ...)
 {
@@ -49,8 +55,8 @@ static bool raop_cmd_handler(raop_event_t event, ...)
                 ESP_LOGI(TAG, "Allocated %zu byte RTP buffer in PSRAM", *size);
             }
 
-            // Allocate audio buffer
-            audio_buffer_init();
+            // Allocate audio buffer with callback
+            audio_buffer_init(audio_output_callback, NULL);
             break;
         }
 

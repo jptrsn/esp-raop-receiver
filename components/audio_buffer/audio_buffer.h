@@ -4,8 +4,11 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-// Initialize the audio buffer (allocates memory, does NOT start playback)
-void audio_buffer_init(void);
+// Audio output callback - called when audio needs to be written to hardware
+typedef void (*audio_output_callback_t)(const uint8_t *data, size_t len, void *user_ctx);
+
+// Initialize the audio buffer with output callback
+void audio_buffer_init(audio_output_callback_t output_cb, void *user_ctx);
 
 // Start audio playback task
 void audio_buffer_start(void);

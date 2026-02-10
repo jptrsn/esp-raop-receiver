@@ -1,5 +1,4 @@
 #include "audio_buffer.h"
-#include "i2s_output.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -28,6 +27,8 @@ static struct {
     TaskHandle_t task;
     bool running;
     uint32_t start_time;
+    audio_output_callback_t output_cb;
+    void *user_ctx;
 } audio_buf = {0};
 
 static struct {
@@ -67,7 +68,7 @@ static void audio_output_task(void *arg) {
         if (timing_correction.pause_frames > 0) {
             uint8_t silence[MAX_FRAME_SIZE];
             memset(silence, 0, 1408); // 352 samples * 4 bytes
-            i2s_output_write(silence, 1408);
+            audio_buf.output_cb(silence, 1408, audio_buf.user_ctx);
             timing_correction.pause_frames--;
             continue;
         }
@@ -97,7 +98,7 @@ static void audio_output_task(void *arg) {
 
                 xSemaphoreGive(audio_buf.mutex);
 
-                i2s_output_write(data, len);
+                audio_buf.output_cb(data, len, audio_buf.user_ctx);
             } else {
                 xSemaphoreGive(audio_buf.mutex);
                 vTaskDelay(pdMS_TO_TICKS(10));
@@ -112,7 +113,7 @@ static void audio_output_task(void *arg) {
     vTaskSuspend(NULL);
 }
 
-void audio_buffer_init(void) {
+void audio_buffer_init(audio_output_callback_t output_cb, void *user_ctx) {
     // If already initialized, just return
     if (audio_buf.frames && audio_buf.mutex) {
         ESP_LOGI(TAG, "Audio buffer already initialized");
@@ -124,6 +125,10 @@ void audio_buffer_init(void) {
     if (audio_buf.mutex) vSemaphoreDelete(audio_buf.mutex);
 
     memset(&audio_buf, 0, sizeof(audio_buf));
+
+    // Store callback
+    audio_buf.output_cb = output_cb;
+    audio_buf.user_ctx = user_ctx;
 
     // Allocate frame buffer in PSRAM
     audio_buf.frames = heap_caps_malloc(BUFFER_FRAMES * sizeof(audio_frame_t),
