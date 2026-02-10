@@ -14,12 +14,13 @@
 
 #define RAOP_SAMPLE_RATE	44100
 
-typedef enum { 	RAOP_SETUP, RAOP_STREAM, RAOP_PLAY, RAOP_FLUSH, RAOP_METADATA, RAOP_ARTWORK, RAOP_PROGRESS, RAOP_PAUSE, RAOP_STOP, RAOP_STALLED,
-				RAOP_VOLUME, RAOP_TIMING, RAOP_PREV, RAOP_NEXT, RAOP_REW, RAOP_FWD,
-				RAOP_VOLUME_UP, RAOP_VOLUME_DOWN, RAOP_RESUME, RAOP_TOGGLE } raop_event_t ;
+typedef enum {  RAOP_INT_SETUP, RAOP_INT_STREAM, RAOP_INT_PLAY, RAOP_INT_FLUSH, RAOP_INT_METADATA, RAOP_INT_ARTWORK, RAOP_INT_PROGRESS, RAOP_INT_PAUSE, RAOP_INT_STOP, RAOP_INT_STALLED,
+                                RAOP_INT_TIMING, RAOP_INT_PREV, RAOP_INT_NEXT, RAOP_INT_REW, RAOP_INT_FWD,
+                                RAOP_INT_VOLUME, RAOP_INT_VOLUME_UP, RAOP_INT_VOLUME_DOWN, RAOP_INT_RESUME, RAOP_INT_TOGGLE,
+                                RAOP_INT_TEARDOWN } raop_internal_event_t ;
 
-typedef bool (*raop_cmd_cb_t)(raop_event_t event, ...);
-typedef bool (*raop_cmd_vcb_t)(raop_event_t event, va_list args);
+typedef bool (*raop_cmd_cb_t)(raop_internal_event_t event, ...);
+typedef bool (*raop_cmd_vcb_t)(raop_internal_event_t event, va_list args);
 typedef void (*raop_data_cb_t)(const uint8_t *data, size_t len, uint32_t playtime);
 
 /**

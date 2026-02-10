@@ -6,10 +6,8 @@ idf_component_register(
         esp_wifi
         esp_netif
         esp_http_server
-        mdns
         driver
-        raop
         wifi_provisioning
-        audio_buffer
         i2s_output
+        esp-raop-receiver
 )

@@ -463,7 +463,7 @@ static void buffer_put_packet(rtp_t *ctx, seq_t seqno, unsigned rtptime, bool fi
 			ctx->state = RTP_PLAY;
 			ctx->first_seqno = -1;
             u32_t playtime = ctx->synchro.time + ((rtptime - ctx->synchro.rtp) * 10) / (RAOP_SAMPLE_RATE / 100);
-            ctx->cmd_cb(RAOP_PLAY, playtime);
+            ctx->cmd_cb(RAOP_INT_PLAY, playtime);
 		} else {
             ctx->state = RTP_STREAM;
 			LOG_INFO("[%p]: 1st accepted packet:%hu, waiting for FLUSH", ctx, seqno);
@@ -479,7 +479,7 @@ static void buffer_put_packet(rtp_t *ctx, seq_t seqno, unsigned rtptime, bool fi
 		ctx->state = RTP_PLAY;
 		ctx->first_seqno = -1;
         u32_t playtime = ctx->synchro.time + ((rtptime - ctx->synchro.rtp) * 10) / (RAOP_SAMPLE_RATE / 100);
-		ctx->cmd_cb(RAOP_PLAY, playtime);
+		ctx->cmd_cb(RAOP_INT_PLAY, playtime);
 	}
 
     abuf = ctx->audio_buffer + BUFIDX(seqno);
@@ -646,7 +646,7 @@ static void rtp_thread_func(void *arg) {
 		for (i = 0; i < 3; i++)	{ FD_SET(ctx->rtp_sockets[i].sock, &fds); }
 
 		if (select(sock + 1, &fds, NULL, NULL, &timeout) <= 0) {
-            if (ctx->stalled++ == 30*10) ctx->cmd_cb(RAOP_STALLED);
+            if (ctx->stalled++ == 30*10) ctx->cmd_cb(RAOP_INT_STALLED);
             continue;
         }
 
@@ -748,7 +748,7 @@ static void rtp_thread_func(void *arg) {
 				LOG_DEBUG("[%p]: sync packet latency:%d rtp_latency:%u rtp:%u remote ntp:%llx, local time:%u local rtp:%u (now:%u)",
 						  ctx, ctx->latency, rtp_now_latency, rtp_now, remote, ctx->synchro.time, ctx->synchro.rtp, gettime_ms());
 
-				if ((ctx->synchro.status & RTP_SYNC) && (ctx->synchro.status & NTP_SYNC)) ctx->cmd_cb(RAOP_TIMING);
+				if ((ctx->synchro.status & RTP_SYNC) && (ctx->synchro.status & NTP_SYNC)) ctx->cmd_cb(RAOP_INT_TIMING);
 
 				break;
 			}

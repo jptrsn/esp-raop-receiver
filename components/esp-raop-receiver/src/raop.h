@@ -14,6 +14,6 @@ struct raop_ctx_s *raop_create(uint32_t host, char *name,
 
 void raop_delete(struct raop_ctx_s *ctx);
 void raop_abort(struct raop_ctx_s *ctx);
-bool raop_cmd(struct raop_ctx_s *ctx, raop_event_t event, void *param);
+bool raop_cmd(struct raop_ctx_s *ctx, raop_internal_event_t event, void *param);
 
 #endif // RAOP_H

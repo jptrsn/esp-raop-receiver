@@ -5,21 +5,20 @@
 #include "esp_system.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include "mdns.h"
 
 #include "wifi_manager.h"
 #include "web_server.h"
 #include "i2s_output.h"
-#include "raop.h"
+#include "esp_raop_receiver.h"
 #include "esp_mac.h"
 #include "lwip/udp.h"
 #include "lwip/dns.h"
-#include "audio_buffer.h"
+#include "esp_netif.h"
 
 static const char *TAG = "main";
 
 static httpd_handle_t web_server = NULL;
-static struct raop_ctx_s *raop_ctx = NULL;
+static raop_handle_t *raop_handle = NULL;
 static struct udp_pcb *dns_pcb = NULL;
 
 // Audio output callback - forwards to I2S hardware
@@ -28,218 +27,70 @@ static void audio_output_callback(const uint8_t *data, size_t len, void *user_ct
     i2s_output_write(data, len);
 }
 
-// RAOP command callback
-static bool raop_cmd_handler(raop_event_t event, ...)
+static void raop_event_handler(raop_event_t event, void *event_data, void *user_ctx)
 {
-    va_list args;
-    va_start(args, event);
-
     switch (event) {
-        case RAOP_SETUP: {
-            ESP_LOGI(TAG, "PSRAM total: %lu, free: %lu",
-                    heap_caps_get_total_size(MALLOC_CAP_SPIRAM),
-                    heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-
-            uint8_t **buffer = va_arg(args, uint8_t**);
-            size_t *size = va_arg(args, size_t*);
-
-            ESP_LOGI(TAG, "RAOP: Setup - negotiating connection");
-
-            *size = 352 * 4 * 1024;
-            *buffer = heap_caps_malloc(*size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-
-            if (*buffer == NULL) {
-                ESP_LOGE(TAG, "Failed to allocate RTP buffer!");
-                *size = 0;
-            } else {
-                ESP_LOGI(TAG, "Allocated %zu byte RTP buffer in PSRAM", *size);
-            }
-
-            // Allocate audio buffer with callback
-            audio_buffer_init(audio_output_callback, NULL);
+        case RAOP_EVENT_CONNECTED:
+            ESP_LOGI(TAG, "AirPlay: client connected");
             break;
-        }
-
-        case RAOP_STREAM: {
-            ESP_LOGI(TAG, "RAOP: Stream starting - beginning playback");
-            audio_buffer_start();
+        case RAOP_EVENT_DISCONNECTED:
+            ESP_LOGI(TAG, "AirPlay: client disconnected");
             break;
-        }
-        case RAOP_PLAY: {
-            uint32_t playtime = va_arg(args, uint32_t);
-            ESP_LOGI(TAG, "RAOP: First frame ready at playtime %u ms", playtime);
-            audio_buffer_set_start_time(playtime);
+        case RAOP_EVENT_BUFFERING:
+            ESP_LOGI(TAG, "AirPlay: buffering");
             break;
-        }
-
-        case RAOP_STOP: {
-            ESP_LOGI(TAG, "RAOP: Stream stopped - stopping playback");
-            audio_buffer_stop();
-            // Note: buffer stays allocated for next stream!
+        case RAOP_EVENT_PLAYING:
+            ESP_LOGI(TAG, "AirPlay: playing");
             break;
-        }
-        case RAOP_FLUSH: {
-            ESP_LOGI(TAG, "RAOP: Flush requested");
-            audio_buffer_flush();
+        case RAOP_EVENT_STOPPED:
+            ESP_LOGI(TAG, "AirPlay: stopped");
             break;
-        }
-        case RAOP_VOLUME: {
-            float volume = va_arg(args, double);
-            ESP_LOGI(TAG, "RAOP: Volume changed to %.2f", volume);
+        case RAOP_EVENT_VOLUME: {
+            float volume = *(float *)event_data;
+            ESP_LOGI(TAG, "AirPlay: volume %.2f", volume);
             i2s_output_set_volume(volume);
             break;
         }
-
-        case RAOP_PROGRESS: {
-            int current = va_arg(args, int);
-            int total = va_arg(args, int);
-            ESP_LOGI(TAG, "RAOP: Progress %d/%d ms", current, total);
+        case RAOP_EVENT_METADATA: {
+            raop_metadata_t *meta = (raop_metadata_t *)event_data;
+            ESP_LOGI(TAG, "AirPlay: %s - %s", meta->artist, meta->title);
             break;
         }
-
-        case RAOP_TIMING: {
-
-            if (!audio_buffer_is_ready()) break;
-            // Timing sync achieved - calculate drift and correct
-            uint32_t frames_buffered, head_playtime;
-            audio_buffer_get_timing(&frames_buffered, &head_playtime);
-
-            if (frames_buffered == 0) break;
-
-            uint32_t now = gettime_ms();
-
-            // How long until the buffered audio finishes playing?
-            // Each frame is ~8ms (352 samples at 44100Hz)
-            uint32_t buffer_duration_ms = (frames_buffered * 352 * 1000) / 44100;
-            uint32_t local_head_time = now + buffer_duration_ms;
-
-            // Compare to remote expected time
-            int32_t error = (int32_t)(head_playtime - local_head_time);
-
-            ESP_LOGD(TAG, "Timing: buffered=%u frames, local_head=%u, remote_head=%u, error=%d ms",
-                    frames_buffered, local_head_time, head_playtime, error);
-
-            // Correct if drift > 50ms
-            if (error < -50) {
-                // We're ahead, skip frames
-                uint32_t skip = (-error * 44100) / (352 * 1000);
-                audio_buffer_skip_frames(skip);
-            } else if (error > 50) {
-                // We're behind, pause (insert silence)
-                uint32_t pause = (error * 44100) / (352 * 1000);
-                audio_buffer_pause_frames(pause);
-            }
-
+        case RAOP_EVENT_ARTWORK: {
+            raop_artwork_t *art = (raop_artwork_t *)event_data;
+            ESP_LOGI(TAG, "AirPlay: artwork %zu bytes", art->len);
             break;
         }
-
-        case RAOP_STALLED:{
-            ESP_LOGW(TAG, "RAOP: Stream stalled - no packets received");
+        case RAOP_EVENT_PROGRESS: {
+            raop_progress_t *progress = (raop_progress_t *)event_data;
+            ESP_LOGI(TAG, "AirPlay: progress %lu/%lu ms",
+                     progress->current_ms, progress->total_ms);
             break;
         }
-
-        case RAOP_METADATA: {
-            char *artist = va_arg(args, char*);
-            char *album = va_arg(args, char*);
-            char *title = va_arg(args, char*);
-            uint32_t timestamp = va_arg(args, uint32_t);
-            ESP_LOGI(TAG, "RAOP: Metadata (ts:%u)", timestamp);
-            ESP_LOGI(TAG, "  Artist: %s", artist ? artist : "N/A");
-            ESP_LOGI(TAG, "  Album:  %s", album ? album : "N/A");
-            ESP_LOGI(TAG, "  Title:  %s", title ? title : "N/A");
+        case RAOP_EVENT_STALLED:
+            ESP_LOGW(TAG, "AirPlay: stream stalled");
             break;
-        }
-
-        case RAOP_ARTWORK: {
-            uint8_t *data = va_arg(args, uint8_t*);
-            size_t len = va_arg(args, size_t);
-            uint32_t timestamp = va_arg(args, uint32_t);
-            ESP_LOGI(TAG, "RAOP: Artwork received (%zu bytes, ts:%u)", len, timestamp);
+        default:
             break;
-        }
-
-        default: {
-            ESP_LOGW(TAG, "RAOP: Unknown event %d", event);
-            break;
-        }
     }
-
-    va_end(args);
-    return true;
-}
-
-// RAOP data callback - this is where audio PCM data arrives
-static void raop_data_handler(const uint8_t *data, size_t len, uint32_t playtime)
-{
-    // Non-blocking write to buffer
-    if (!audio_buffer_write(data, len, playtime)) {
-        ESP_LOGW(TAG, "Failed to buffer audio frame");
-    }
-}
-
-static void start_mdns_service(void)
-{
-    esp_err_t err = mdns_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "mDNS init failed: %s", esp_err_to_name(err));
-        return;
-    }
-
-    uint8_t mac[6];
-    esp_efuse_mac_get_default(mac);
-
-    char hostname[32];
-    snprintf(hostname, sizeof(hostname), "esp-airplay-%02x%02x%02x",
-             mac[3], mac[4], mac[5]);
-
-    mdns_hostname_set(hostname);
-    mdns_instance_name_set("ESP AirPlay Receiver");
-
-    ESP_LOGI(TAG, "mDNS hostname set to: %s.local", hostname);
 }
 
 static void start_airplay_receiver(void)
 {
-    uint8_t mac[6];
-    char device_name[32];
+    raop_config_t config = {
+        .volume_mode    = RAOP_VOLUME_SOFTWARE,
+        .mdns_mode      = RAOP_MDNS_MANAGED,
+        .audio_output_cb = audio_output_callback,
+        .event_cb       = raop_event_handler,
+    };
 
-    esp_efuse_mac_get_default(mac);
-    snprintf(device_name, sizeof(device_name), "ESP-AirPlay-%02X%02X%02X",
-             mac[3], mac[4], mac[5]);
-
-    // Get local IP
-    uint32_t ip = 0;
-    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-    if (!netif) {
-        netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
-    }
-
-    if (netif) {
-        esp_netif_ip_info_t ip_info;
-        if (esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
-            ip = ip_info.ip.addr;
-        }
-    }
-
-    if (ip == 0) {
-        ESP_LOGE(TAG, "Failed to get IP address for AirPlay");
+    esp_err_t err = raop_init(&config, &raop_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start AirPlay: %s", esp_err_to_name(err));
         return;
     }
 
-    ESP_LOGI(TAG, "Starting AirPlay receiver on IP: %d.%d.%d.%d",
-         (int)(ip & 0xFF), (int)((ip >> 8) & 0xFF),
-         (int)((ip >> 16) & 0xFF), (int)((ip >> 24) & 0xFF));
-
-    // Create RAOP context with 88200 frames latency (2 seconds at 44.1kHz)
-    raop_ctx = raop_create(ip, device_name, mac, 88200,
-                          raop_cmd_handler, raop_data_handler);
-
-    if (raop_ctx) {
-        ESP_LOGI(TAG, "AirPlay receiver started successfully");
-        ESP_LOGI(TAG, "Device name: %s", device_name);
-    } else {
-        ESP_LOGE(TAG, "Failed to start AirPlay receiver");
-    }
+    ESP_LOGI(TAG, "AirPlay receiver started: %s", raop_get_device_name(raop_handle));
 }
 
 static void dns_recv_callback(void *arg, struct udp_pcb *pcb, struct pbuf *p,
@@ -366,9 +217,6 @@ void app_main(void)
 
     // Start web server for configuration
     web_server = web_server_start();
-
-    // Initialize mDNS
-    start_mdns_service();
 
     // Wait for WiFi connection (give it some time)
     ESP_LOGI(TAG, "Waiting for network...");

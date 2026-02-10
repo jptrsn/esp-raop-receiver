@@ -182,7 +182,7 @@ void raop_delete(struct raop_ctx_s *ctx) {
 }
 
 /*----------------------------------------------------------------------------*/
-bool raop_cmd(struct raop_ctx_s *ctx, raop_event_t event, void *param) {
+bool raop_cmd(struct raop_ctx_s *ctx, raop_internal_event_t event, void *param) {
 	struct sockaddr_in addr;
 	int sock;
 	char *command = NULL;
@@ -190,40 +190,40 @@ bool raop_cmd(struct raop_ctx_s *ctx, raop_event_t event, void *param) {
 
 	// first notify the remote controller (if any)
 	switch(event) {
-		case RAOP_REW:
+		case RAOP_INT_REW:
 			command = strdup("beginrew");
 			break;
-		case RAOP_FWD:
+		case RAOP_INT_FWD:
 			command = strdup("beginff");
 			break;
-		case RAOP_PREV:
+		case RAOP_INT_PREV:
 			command = strdup("previtem");
 			break;
-		case RAOP_NEXT:
+		case RAOP_INT_NEXT:
 			command = strdup("nextitem");
 			break;
-		case RAOP_TOGGLE:
+		case RAOP_INT_TOGGLE:
 			command = strdup("playpause");
 			break;
-		case RAOP_PAUSE:
+		case RAOP_INT_PAUSE:
 			command = strdup("pause");
 			break;
-		case RAOP_PLAY:
+		case RAOP_INT_PLAY:
 			command = strdup("play");
 			break;
-		case RAOP_RESUME:
+		case RAOP_INT_RESUME:
 			command = strdup("playresume");
 			break;
-		case RAOP_STOP:
+		case RAOP_INT_STOP:
 			command = strdup("stop");
 			break;
-		case RAOP_VOLUME_UP:
+		case RAOP_INT_VOLUME_UP:
 			command = strdup("volumeup");
 			break;
-		case RAOP_VOLUME_DOWN:
+		case RAOP_INT_VOLUME_DOWN:
 			command = strdup("volumedown");
 			break;
-		case RAOP_VOLUME: {
+		case RAOP_INT_VOLUME: {
 			float Volume = *((float*) param);
 			Volume = Volume ? (Volume - 1) * 30 : -144;
 			asprintf(&command,"setproperty?dmcp.device-volume=%0.4lf", Volume);
@@ -451,7 +451,7 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 		uint8_t *buffer = NULL;
 		size_t size = 0;
 
-		success = ctx->cmd_cb(RAOP_SETUP, &buffer, &size);
+		success = ctx->cmd_cb(RAOP_INT_SETUP, &buffer, &size);
 
 		if ((p = strcasestr(buf, "timing_port")) != NULL) sscanf(p, "%*[^=]=%hu", &tport);
 		if ((p = strcasestr(buf, "control_port")) != NULL) sscanf(p, "%*[^=]=%hu", &cport);
@@ -489,7 +489,7 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 
 		if (ctx->rtp) rtp_record(ctx->rtp, seqno, rtptime);
 
-		success = ctx->cmd_cb(RAOP_STREAM);
+		success = ctx->cmd_cb(RAOP_INT_STREAM);
 
 	}  else if (!strcmp(method, "FLUSH")) {
 		unsigned short seqno = 0;
@@ -501,14 +501,14 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 		if ((p = strcasestr(buf, "rtptime")) != NULL) sscanf(p, "%*[^=]=%u", &rtptime);
 
 		if (ctx->rtp && rtp_flush(ctx->rtp, seqno, rtptime, true)) {
-			success = ctx->cmd_cb(RAOP_FLUSH);
+			success = ctx->cmd_cb(RAOP_INT_FLUSH);
 			rtp_flush_release(ctx->rtp);
 		}
 
 	}  else if (!strcmp(method, "TEARDOWN")) {
 
 		cleanup_rtsp(ctx, false);
-		success = ctx->cmd_cb(RAOP_STOP);
+		success = ctx->cmd_cb(RAOP_INT_STOP);
 
 	} else if (!strcmp(method, "SET_PARAMETER")) {
 		char *p;
@@ -518,7 +518,7 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 
 			sscanf(p, "%*[^:]:%f", &volume);
 			volume = (volume == -144.0) ? 0 : (1 + volume / 30);
-			success = ctx->cmd_cb(RAOP_VOLUME, volume);
+			success = ctx->cmd_cb(RAOP_INT_VOLUME, volume);
 		} else if (body && (p = strcasestr(body, "progress")) != NULL) {
 			int start, current, stop = 0;
 
@@ -526,7 +526,7 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 			current = ((current - start) / 44100) * 1000;
 			if (stop) stop = ((stop - start) / 44100) * 1000;
 			LOG_INFO("[%p]: SET PARAMETER progress %d/%u %s", ctx, current, stop, p);
-			success = ctx->cmd_cb(RAOP_PROGRESS, max(current, 0), stop);
+			success = ctx->cmd_cb(RAOP_INT_PROGRESS, max(current, 0), stop);
 		} else if (body && ((p = kd_lookup(headers, "Content-Type")) != NULL) && !strcasecmp(p, "application/x-dmap-tagged")) {
 			struct metadata_s metadata;
 			dmap_settings settings = {
@@ -542,14 +542,14 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 				LOG_INFO("[%p]: received metadata (ts: %d)\n\tartist: %s\n\talbum:  %s\n\ttitle:  %s",
 						 ctx, timestamp, metadata.artist ? metadata.artist : "", metadata.album ? metadata.album : "",
                          metadata.title ? metadata.title : "");
-                success = ctx->cmd_cb(RAOP_METADATA, metadata.artist, metadata.album, metadata.title, timestamp);
+                success = ctx->cmd_cb(RAOP_INT_METADATA, metadata.artist, metadata.album, metadata.title, timestamp);
 				free_metadata(&metadata);
 			}
 		} else if (body && ((p = kd_lookup(headers, "Content-Type")) != NULL) && strcasestr(p, "image/jpeg")) {
             uint32_t timestamp = 0;
             if ((p = kd_lookup(headers, "RTP-Info")) != NULL) sscanf(p, "%*[^=]=%lu", (unsigned long*)&timestamp);
             LOG_INFO("[%p]: received JPEG image of %d bytes (ts:%d)", ctx, len, timestamp);
-			ctx->cmd_cb(RAOP_ARTWORK, body, len, timestamp);
+			ctx->cmd_cb(RAOP_INT_ARTWORK, body, len, timestamp);
 		} else {
 			char *dump = kd_dump(headers);
 			LOG_INFO("Unhandled SET PARAMETER\n%s", dump);
@@ -583,6 +583,7 @@ void cleanup_rtsp(raop_ctx_t *ctx, bool abort) {
 		rtp_end(ctx->rtp);
 		ctx->rtp = NULL;
 		if (abort) LOG_INFO("[%p]: RTP thread aborted", ctx);
+		ctx->cmd_cb(RAOP_INT_TEARDOWN);
 	}
 
 	if (ctx->active_remote.running) {
