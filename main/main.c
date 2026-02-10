@@ -54,11 +54,11 @@ static bool raop_cmd_handler(raop_event_t event, ...)
             break;
         }
 
-        case RAOP_STREAM:
+        case RAOP_STREAM: {
             ESP_LOGI(TAG, "RAOP: Stream starting - beginning playback");
             audio_buffer_start();
             break;
-
+        }
         case RAOP_PLAY: {
             uint32_t playtime = va_arg(args, uint32_t);
             ESP_LOGI(TAG, "RAOP: First frame ready at playtime %u ms", playtime);
@@ -66,17 +66,17 @@ static bool raop_cmd_handler(raop_event_t event, ...)
             break;
         }
 
-        case RAOP_STOP:
+        case RAOP_STOP: {
             ESP_LOGI(TAG, "RAOP: Stream stopped - stopping playback");
             audio_buffer_stop();
             // Note: buffer stays allocated for next stream!
             break;
-
-        case RAOP_FLUSH:
+        }
+        case RAOP_FLUSH: {
             ESP_LOGI(TAG, "RAOP: Flush requested");
             audio_buffer_flush();
             break;
-
+        }
         case RAOP_VOLUME: {
             float volume = va_arg(args, double);
             ESP_LOGI(TAG, "RAOP: Volume changed to %.2f", volume);
