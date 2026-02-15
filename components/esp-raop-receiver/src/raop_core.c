@@ -80,6 +80,9 @@ static bool internal_cmd_cb(raop_internal_event_t event, ...) {
 
         case RAOP_INT_FLUSH:
             audio_buffer_flush();
+            if (handle->config.event_cb) {
+                handle->config.event_cb(RAOP_EVENT_PAUSED, NULL, handle->config.user_ctx);
+            }
             break;
 
         case RAOP_INT_TEARDOWN:

@@ -145,10 +145,10 @@ void i2s_output_write(const uint8_t *data, size_t len)
         output_data = (uint8_t *)volume_buffer;
     }
 
-    if (call_count++ % 100 == 0) {
-        ESP_LOGI(TAG, "Writing %zu bytes to I2S (call #%lu)",
-                 len, call_count);
-    }
+    // if (call_count++ % 100 == 0) {
+    //     ESP_LOGI(TAG, "Writing %zu bytes to I2S (call #%lu)",
+    //              len, call_count);
+    // }
 
     size_t bytes_written = 0;
     esp_err_t ret = i2s_channel_write(tx_handle, output_data, len, &bytes_written, portMAX_DELAY);

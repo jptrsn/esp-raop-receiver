@@ -374,6 +374,8 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 	int len;
 	bool success = true;
 
+	LOG_INFO("[%p]: received %s", ctx, method);
+
 	if (!http_parse(sock, method, headers, &body, &len)) {
 		if (body) free(body);
 		kd_free(headers);

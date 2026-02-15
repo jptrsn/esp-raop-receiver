@@ -192,7 +192,6 @@ static char *ltrim(char *s)
 bool http_parse(int sock, char *method, key_data_t *rkd, char **body, int *len)
 {
 	char line[256], *dp;
-	unsigned j;
 	int i, timeout = 100;
 
 	rkd[0].key = NULL;
@@ -214,18 +213,24 @@ bool http_parse(int sock, char *method, key_data_t *rkd, char **body, int *len)
 	while (read_line(sock, line, sizeof(line), timeout) > 0) {
 
 		// Check for max headers (leave room for NULL terminator)
-    if (i >= 31) {  // Assuming max 32 headers
-        LOG_ERROR("Too many headers, ignoring rest");
-        break;
-    }
+		if (i >= 31) {  // Assuming max 32 headers
+			LOG_ERROR("Too many headers, ignoring rest");
+			break;
+		}
 
 		LOG_SDEBUG("sock: %u, received %s", line);
 
 		// line folding should be deprecated
-		if (i && rkd[i].key && (line[0] == ' ' || line[0] == '\t')) {
-			for(j = 0; j < strlen(line); j++) if (line[j] != ' ' && line[j] != '\t') break;
-			rkd[i].data = realloc(rkd[i].data, strlen(rkd[i].data) + strlen(line + j) + 1);
-			strcat(rkd[i].data, line + j);
+		if (i && rkd[i-1].key && (line[0] == ' ' || line[0] == '\t')) {
+			// Find first non-whitespace
+			char *trimmed = line;
+			while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
+
+			// Append to previous data
+			size_t old_len = strlen(rkd[i-1].data);
+			size_t new_len = strlen(trimmed);
+			rkd[i-1].data = realloc(rkd[i-1].data, old_len + new_len + 1);
+			memcpy(rkd[i-1].data + old_len, trimmed, new_len + 1);
 			continue;
 		}
 
@@ -241,7 +246,10 @@ bool http_parse(int sock, char *method, key_data_t *rkd, char **body, int *len)
 		rkd[i].key = strdup(line);
 		rkd[i].data = strdup(ltrim(dp + 1));
 
-		if (!strcasecmp(rkd[i].key, "Content-Length")) *len = atol(rkd[i].data);
+		// Check for Content-Length using cached key
+		if (strcasecmp(rkd[i].key, "Content-Length") == 0) {
+			*len = atol(rkd[i].data);
+		}
 
 		i++;
 		rkd[i].key = NULL;
@@ -251,7 +259,12 @@ bool http_parse(int sock, char *method, key_data_t *rkd, char **body, int *len)
 		int size = 0;
 
 		*body = malloc(*len + 1);
-		while (*body && size < *len) {
+		if (!*body) {
+			LOG_ERROR("failed to allocate body buffer", NULL);
+			return false;
+		}
+
+		while (size < *len) {
 			int bytes = recv(sock, *body + size, *len - size, 0);
 			if (bytes <= 0) break;
 			size += bytes;
@@ -259,7 +272,7 @@ bool http_parse(int sock, char *method, key_data_t *rkd, char **body, int *len)
 
 		(*body)[*len] = '\0';
 
-		if (!*body || size != *len) {
+		if (size != *len) {
 			LOG_ERROR("content length receive error %d %d", *len, size);
 		}
 	}
@@ -271,40 +284,59 @@ bool http_parse(int sock, char *method, key_data_t *rkd, char **body, int *len)
 /*----------------------------------------------------------------------------*/
 static int read_line(int fd, char *line, int maxlen, int timeout)
 {
-	int i,rval;
-	int count=0;
 	struct pollfd pfds;
-	char ch;
+	char buffer[512];
+	int n, count = 0;
+	char *line_start = line;
 
-	*line = 0;
 	pfds.fd = fd;
 	pfds.events = POLLIN;
+	*line = 0;
 
-	for(i = 0; i < maxlen; i++){
-		if (poll(&pfds, 1, timeout)) rval=recv(fd, &ch, 1, 0);
-		else return 0;
-
-		if (rval == -1) {
-			if (errno == EAGAIN) return 0;
-			LOG_ERROR("fd: %d read error: %s", fd, strerror(errno));
-			return -1;
-		}
-
-		if (rval == 0) {
-			LOG_INFO("disconnected on the other end %u (after reading %d chars)", fd, count);
+	while (count < maxlen - 1) {
+		// Wait for data with timeout (only on first iteration)
+		if (count == 0 && poll(&pfds, 1, timeout) <= 0) {
 			return 0;
 		}
 
-		if (ch == '\n') {
-			*line=0;
+		// Peek at available data without removing it from socket
+		n = recv(fd, buffer, sizeof(buffer), MSG_PEEK);
+		if (n <= 0) {
+			if (n == 0) LOG_INFO("disconnected on the other end %u", fd);
+			else if (errno != EAGAIN) LOG_ERROR("fd: %d read error: %s", fd, strerror(errno));
+			return n < 0 ? -1 : count;
+		}
+
+		// Find line ending in peeked data
+		int consumed = 0;
+		for (int i = 0; i < n && count < maxlen - 1; i++) {
+			char ch = buffer[i];
+			consumed = i + 1;
+
+			if (ch == '\n') {
+				// Now actually consume up to and including \n
+				recv(fd, buffer, consumed, 0);
+				*line = 0;
+				return count;
+			}
+			if (ch == '\r') continue;
+
+			*line++ = ch;
+			count++;
+		}
+
+		// Consume what we processed
+		recv(fd, buffer, consumed, 0);
+
+		// If we didn't find \n and buffer is full, line is too long
+		if (consumed == n && count >= maxlen - 1) {
+			*line = 0;
+			LOG_WARN("line too long, truncated at %d chars", count);
 			return count;
 		}
 
-		if (ch=='\r') continue;
-
-		*line++=ch;
-		count++;
-		if (count >= maxlen-1) break;
+		// Continue reading (no timeout for subsequent reads)
+		timeout = 0;
 	}
 
 	*line = 0;
@@ -381,36 +413,31 @@ void kd_free(key_data_t *kd)
 char *kd_dump(key_data_t *kd)
 {
 	int i = 0;
-	int pos = 0, size = 0;
-	char *str = NULL;
+	int pos = 0;
+	char *str;
 
 	if (!kd || !kd[0].key) return strdup("\r\n");
 
-	while (kd && kd[i].key) {
-		char *buf;
-		int len;
+	// First pass: calculate total size needed
+	int total_size = 0;
+	while (kd[i].key) {
+		total_size += strlen(kd[i].key) + strlen(kd[i].data) + 4; // ": \r\n"
+		i++;
+	}
 
-		len = asprintf(&buf, "%s: %s\r\n", kd[i].key, kd[i].data);
+	// Allocate exact size needed
+	str = malloc(total_size + 1);
+	if (!str) return NULL;
 
-		while (pos + len >= size) {
-			void *p = realloc(str, size + 1024);
-			size += 1024;
-			if (!p) {
-				free(str);
-				return NULL;
-			}
-			str = p;
-		}
-
-		memcpy(str + pos, buf, len);
-
+	// Second pass: build string
+	i = 0;
+	while (kd[i].key) {
+		int len = sprintf(str + pos, "%s: %s\r\n", kd[i].key, kd[i].data);
 		pos += len;
-		free(buf);
 		i++;
 	}
 
 	str[pos] = '\0';
-
 	return str;
 }
 
@@ -428,5 +455,5 @@ void free_metadata(struct metadata_s *metadata)
 
 // Time utility implementation
 uint32_t gettime_ms(void) {
-    return (uint32_t)(esp_timer_get_time() / 1000ULL);
+	return (uint32_t)(esp_timer_get_time() / 1000ULL);
 }

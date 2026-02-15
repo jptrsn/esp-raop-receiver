@@ -42,6 +42,9 @@ static void raop_event_handler(raop_event_t event, void *event_data, void *user_
         case RAOP_EVENT_PLAYING:
             ESP_LOGI(TAG, "AirPlay: playing");
             break;
+        case RAOP_EVENT_PAUSED:
+            ESP_LOGI(TAG, "AirPlay: paused");
+            break;
         case RAOP_EVENT_STOPPED:
             ESP_LOGI(TAG, "AirPlay: stopped");
             break;
