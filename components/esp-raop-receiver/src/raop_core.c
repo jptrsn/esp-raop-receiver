@@ -281,8 +281,9 @@ esp_err_t raop_init(const raop_config_t *config, raop_handle_t **out_handle) {
     // Create internal RAOP context
     s_handle = handle;
     handle->raop_ctx = raop_create(ip, handle->device_name, mac,
-                                   config->latency_frames ? config->latency_frames : 88200,
-                                   internal_cmd_cb, internal_data_cb);
+                               config->latency_frames ? config->latency_frames : 88200,
+                               internal_cmd_cb, internal_data_cb,
+                               config->mdns_mode);
 
     if (!handle->raop_ctx) {
         s_handle = NULL;

@@ -78,7 +78,8 @@ static void on_dmap_string(void *ctx, const char *code, const char *name, const 
 /*----------------------------------------------------------------------------*/
 struct raop_ctx_s *raop_create(uint32_t host, char *name,
 						unsigned char mac[6], int latency,
-						raop_cmd_cb_t cmd_cb, raop_data_cb_t data_cb) {
+						raop_cmd_cb_t cmd_cb, raop_data_cb_t data_cb,
+						raop_mdns_mode_t mdns_mode) {
 	struct raop_ctx_s *ctx = malloc(sizeof(struct raop_ctx_s));
 	struct sockaddr_in addr;
 	char id[64];
@@ -133,8 +134,13 @@ struct raop_ctx_s *raop_create(uint32_t host, char *name,
 	memcpy(ctx->mac, mac, 6);
 	snprintf(id, 64, "%02X%02X%02X%02X%02X%02X@%s", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], name);
 
-	LOG_INFO("starting mDNS with %s", id);
-	mdns_service_add(id, "_raop", "_tcp", ctx->port, (mdns_txt_item_t*) txt, sizeof(txt) / sizeof(mdns_txt_item_t));
+	// Only register mDNS if managed mode
+	if (mdns_mode == RAOP_MDNS_MANAGED) {
+		LOG_INFO("starting mDNS with %s", id);
+		mdns_service_add(id, "_raop", "_tcp", ctx->port, (mdns_txt_item_t*) txt, sizeof(txt) / sizeof(mdns_txt_item_t));
+	} else {
+		LOG_INFO("mDNS external mode - service registration skipped for %s", id);
+	}
 
   ctx->xTaskBuffer = (StaticTask_t*) heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 	BaseType_t core_id = (CONFIG_PTHREAD_TASK_CORE_DEFAULT == -1) ? tskNO_AFFINITY : CONFIG_PTHREAD_TASK_CORE_DEFAULT;
