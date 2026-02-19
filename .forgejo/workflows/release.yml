@@ -14,6 +14,8 @@ on:
 jobs:
   build:
     runs-on: codeberg-small-lazy
+    container:
+      image: espressif/idf:v5.5.1
     strategy:
       matrix:
         target: [esp32, esp32s3]
@@ -25,11 +27,9 @@ jobs:
           submodules: recursive
 
       - name: Build firmware
-        uses: espressif/esp-idf-ci-action@v1
-        with:
-          esp_idf_version: v5.5.1
-          target: ${{ matrix.target }}
-          command: idf.py build
+        run: |
+          idf.py set-target ${{ matrix.target }}
+          idf.py build
 
       - name: Rename binary
         run: cp build/esp-airsync.bin esp-airsync-${{ matrix.target }}.bin
@@ -42,7 +42,7 @@ jobs:
 
   release:
     needs: build
-    runs-on: codeberg-medium
+    runs-on: codeberg-small
 
     steps:
       - name: Download all artifacts
@@ -53,7 +53,6 @@ jobs:
           CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
           TAG: ${{ forgejo.ref_name != '' && forgejo.ref_name || inputs.tag }}
         run: |
-          # Create the release
           RELEASE=$(curl -s -X POST \
             -H "Authorization: token $CODEBERG_TOKEN" \
             -H "Content-Type: application/json" \
@@ -62,14 +61,12 @@ jobs:
 
           RELEASE_ID=$(echo $RELEASE | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
 
-          # Upload esp32 binary
           curl -s -X POST \
             -H "Authorization: token $CODEBERG_TOKEN" \
             -H "Content-Type: application/octet-stream" \
             --data-binary @firmware-esp32/esp-airsync-esp32.bin \
             "https://codeberg.org/api/v1/repos/Edu_Coder/esp-airsync/releases/$RELEASE_ID/assets?name=esp-airsync-esp32.bin"
 
-          # Upload esp32s3 binary
           curl -s -X POST \
             -H "Authorization: token $CODEBERG_TOKEN" \
             -H "Content-Type: application/octet-stream" \
