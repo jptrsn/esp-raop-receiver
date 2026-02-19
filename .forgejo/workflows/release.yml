@@ -8,6 +8,7 @@ on:
     inputs:
       tag:
         description: 'Tag name for the release'
+        type: string
         required: true
 
 jobs:
