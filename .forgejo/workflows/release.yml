@@ -4,10 +4,15 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name for the release'
+        required: true
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: codeberg-medium
     strategy:
       matrix:
         target: [esp32, esp32s3]
@@ -26,8 +31,7 @@ jobs:
           command: idf.py build
 
       - name: Rename binary
-        run: |
-          cp build/esp-airsync.bin esp-airsync-${{ matrix.target }}.bin
+        run: cp build/esp-airsync.bin esp-airsync-${{ matrix.target }}.bin
 
       - name: Upload binary as artifact
         uses: actions/upload-artifact@v4
@@ -37,45 +41,36 @@ jobs:
 
   release:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: codeberg-medium
 
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
 
-      - name: Generate manifest
-        run: |
-          cat > manifest.json << EOF
-          {
-            "name": "ESP AirSync",
-            "new_install_prompt_erase": true,
-            "versions": [
-              {
-                "name": "${{ github.ref_name }}",
-                "builds": [
-                  {
-                    "chipFamily": "ESP32",
-                    "parts": [{"path": "${{ secrets.CF_R2_PUBLIC_URL }}/releases/${{ github.ref_name }}/esp-airsync-esp32.bin", "offset": 0}]
-                  },
-                  {
-                    "chipFamily": "ESP32-S3",
-                    "parts": [{"path": "${{ secrets.CF_R2_PUBLIC_URL }/releases/${{ github.ref_name }}/esp-airsync-esp32s3.bin", "offset": 0}]
-                  }
-                ]
-              }
-            ]
-          }
-          EOF
-
-      - name: Upload to R2
-        run: |
-          npm install -g wrangler
-          wrangler r2 object put ${{ secrets.CF_R2_BUCKET_NAME }}/releases/${{ github.ref_name }}/esp-airsync-esp32.bin \
-            --file firmware-esp32/esp-airsync-esp32.bin
-          wrangler r2 object put ${{ secrets.CF_R2_BUCKET_NAME }}/releases/${{ github.ref_name }}/esp-airsync-esp32s3.bin \
-            --file firmware-esp32s3/esp-airsync-esp32s3.bin
-          wrangler r2 object put ${{ secrets.CF_R2_BUCKET_NAME }}/releases/latest/manifest.json \
-            --file manifest.json
+      - name: Create release and upload assets
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+          TAG: TAG: ${{ forgejo.ref_name != '' && forgejo.ref_name || inputs.tag }}
+        run: |
+          # Create the release
+          RELEASE=$(curl -s -X POST \
+            -H "Authorization: token $CODEBERG_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"tag_name\": \"$TAG\", \"name\": \"$TAG\", \"draft\": false}" \
+            https://codeberg.org/api/v1/repos/Edu_Coder/esp-airsync/releases)
+
+          RELEASE_ID=$(echo $RELEASE | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+
+          # Upload esp32 binary
+          curl -s -X POST \
+            -H "Authorization: token $CODEBERG_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @firmware-esp32/esp-airsync-esp32.bin \
+            "https://codeberg.org/api/v1/repos/Edu_Coder/esp-airsync/releases/$RELEASE_ID/assets?name=esp-airsync-esp32.bin"
+
+          # Upload esp32s3 binary
+          curl -s -X POST \
+            -H "Authorization: token $CODEBERG_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @firmware-esp32s3/esp-airsync-esp32s3.bin \
+            "https://codeberg.org/api/v1/repos/Edu_Coder/esp-airsync/releases/$RELEASE_ID/assets?name=esp-airsync-esp32s3.bin"
