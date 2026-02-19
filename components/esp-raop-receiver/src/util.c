@@ -63,7 +63,7 @@ in_addr_t get_localhost(char **name)
 		if (esp_netif_get_hostname(netif, &hostname) == ESP_OK) {
 			*name = strdup(hostname);
 		} else {
-			*name = strdup("esp-airplay");
+			*name = strdup("esp-airsync");
 		}
 	}
 

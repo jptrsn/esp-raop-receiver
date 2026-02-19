@@ -28,9 +28,9 @@
 
 typedef struct raop_ctx_s {
 	struct in_addr host;	// IP of bridge
-	short unsigned port;    // RTSP port for AirPlay
+	short unsigned port;    // RTSP port for RAOP
 	int sock;               // socket of the above
-	struct in_addr peer;	// IP of the iDevice (airplay sender)
+	struct in_addr peer;	// IP of the iDevice (RAOP sender)
 	bool running;
 	TaskHandle_t thread, joiner;
 	StaticTask_t *xTaskBuffer;
@@ -264,7 +264,7 @@ bool raop_cmd(struct raop_ctx_s *ctx, raop_internal_event_t event, void *param) 
 		buf = http_send(sock, method, headers);
 		len = recv(sock, resp, 512, 0);
 		if (len > 0) resp[len-1] = '\0';
-		LOG_INFO("[%p]: sending airplay remote\n%s<== received ==>\n%s", ctx, buf, resp);
+		LOG_INFO("[%p]: sending remote\n%s<== received ==>\n%s", ctx, buf, resp);
 
 		if (method) free(method);
 		if (buf) free(buf);

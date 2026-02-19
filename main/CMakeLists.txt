@@ -12,4 +12,5 @@ idf_component_register(
         i2s_output
         esp-raop-receiver
         esp_system
+        app_update
 )

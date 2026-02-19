@@ -1,6 +1,6 @@
-# ESP32 AirPlay Receiver
+# ESP32 Remote Audio Output Protocol (AirPlay) Receiver
 
-A high-quality AirPlay audio receiver implementation for ESP32-WROVER-B with external DAC support, featuring multi-room synchronization and robust audio buffering.
+A high-quality RAOP audio receiver implementation for ESP32-WROVER-B with external DAC support, featuring multi-room synchronization and robust audio buffering.
 
 ## Features
 
@@ -38,8 +38,8 @@ Pins can be reconfigured via the web interface.
 
 1. Clone the repository:
 ```bash
-git clone https://codeberg.org/edu_coder/esp-airplay.git
-cd esp-airplay
+git clone https://codeberg.org/edu_coder/esp-airsync.git
+cd esp-airsync
 ```
 
 2. Set up ESP-IDF environment:
@@ -64,17 +64,18 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 ### Initial Configuration
 
-1. On first boot, the device creates a WiFi access point named `ESP32-AirPlay-Setup`
-2. Connect to this network (password: `airplay123`)
+1. On first boot, the device creates a WiFi access point named `ESP-AIRSYNC-XXXXXX`
+2. Connect to this network (password: `espairsync`)
 3. Navigate to `192.168.4.1` in your browser
 4. Enter your WiFi credentials and configure I²S pins if needed
-5. Device will reboot and connect to your network
+5. Configure device name, if desired
+5. Reboot device to save settings and connect to configured wifi
 
 ### Usage
 
 Once configured:
-1. Device appears as "ESP32-AirPlay" in your AirPlay device list
-2. Select it from iTunes, Music.app, or any AirPlay-compatible application
+1. Device appears as the configured device name in your AirPlay device list
+2. Select it from iTunes, OwnTone, or any AirPlay-compatible application
 3. Audio streams with automatic synchronization for multi-room playback
 
 ## Architecture
@@ -145,13 +146,11 @@ This license was chosen to maintain compatibility with the GPL-licensed componen
 
 ### Project Structure
 ```
-esp-airplay/
+esp-airsync/
 ├── main/                   # Main application code
 ├── components/
-│   ├── raop/              # RAOP protocol implementation
-│   ├── audio_buffer/      # Timing-aware audio ring buffer
+│   ├── esp-raop-receiver/ # Full RAOP library
 │   ├── i2s_output/        # I²S DAC interface
-│   └── codecs/            # Audio codec libraries
 └── partitions.csv         # Flash partition table
 ```
 
@@ -175,15 +174,11 @@ Contributions are welcome! Please:
 - AirPlay 1 only (AirPlay 2 not supported)
 - No video support
 - 2.4GHz WiFi only (ESP32 hardware limitation)
-- Only 4MB of 8MB PSRAM usable (ESP32 address space limitation)
 
 ## Future Enhancements
 
-- [ ] AirPlay 2 support (requires significant protocol work)
 - [ ] Additional DAC support (I²S variants)
-- [ ] Equalizer/DSP features
-- [ ] Multiple endpoint support
-- [ ] MQTT integration for home automation
+- [ ] Additional board variant builds
 
 ## Support
 

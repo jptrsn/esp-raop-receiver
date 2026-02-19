@@ -14,8 +14,8 @@ static const char *TAG = "wifi_manager";
 #define WIFI_PASS_KEY "wifi_pass"
 #define WIFI_NAMESPACE "wifi_config"
 
-#define AP_SSID_PREFIX "ESPAIRPLAY-"
-#define AP_PASSWORD "espairplay"
+#define AP_SSID_PREFIX "ESP-AIRSYNC-"
+#define AP_PASSWORD "espairsync"
 
 static bool s_wifi_connected = false;
 static char s_ip_address[16] = "";
@@ -156,21 +156,6 @@ static void start_ap_mode(void)
     ESP_LOGI(TAG, "  SSID: %s", ap_ssid);
     ESP_LOGI(TAG, "  Config page: http://192.168.4.1");
     ESP_LOGI(TAG, "===========================================");
-}
-
-static void start_sta_mode(const char *ssid, const char *password)
-{
-    wifi_config_t sta_config = {0};
-
-    strcpy((char *)sta_config.sta.ssid, ssid);
-    strcpy((char *)sta_config.sta.password, password);
-    sta_config.sta.threshold.authmode = WIFI_AUTH_OPEN;
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-
-    ESP_LOGI(TAG, "Connecting to WiFi SSID: %s", ssid);
 }
 
 void wifi_manager_init(void)

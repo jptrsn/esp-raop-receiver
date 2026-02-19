@@ -15,6 +15,7 @@
 #include "lwip/udp.h"
 #include "lwip/dns.h"
 #include "esp_netif.h"
+#include "esp_ota_ops.h"
 
 static const char *TAG = "main";
 
@@ -184,6 +185,17 @@ void app_main(void)
     ESP_LOGI(TAG, "About to initialize WiFi manager...");
     wifi_manager_init();
     ESP_LOGI(TAG, "WiFi manager initialized");
+
+    // Mark firmware as valid now that core systems are up
+    // This confirms the OTA update was successful and prevents rollback
+    esp_ota_img_states_t ota_state;
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK) {
+        if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
+            ESP_LOGI(TAG, "OTA image pending verify, marking valid");
+            esp_ota_mark_app_valid_cancel_rollback();
+        }
+    }
 
     if (wifi_manager_is_ap_mode()) {
         start_dns_server();
