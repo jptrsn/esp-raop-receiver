@@ -1,0 +1,81 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [esp32, esp32s3]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.1
+          target: ${{ matrix.target }}
+          command: idf.py build
+
+      - name: Rename binary
+        run: |
+          cp build/esp-airsync.bin esp-airsync-${{ matrix.target }}.bin
+
+      - name: Upload binary as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.target }}
+          path: esp-airsync-${{ matrix.target }}.bin
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Generate manifest
+        run: |
+          cat > manifest.json << EOF
+          {
+            "name": "ESP AirSync",
+            "new_install_prompt_erase": true,
+            "versions": [
+              {
+                "name": "${{ github.ref_name }}",
+                "builds": [
+                  {
+                    "chipFamily": "ESP32",
+                    "parts": [{"path": "${{ secrets.CF_R2_PUBLIC_URL }}/releases/${{ github.ref_name }}/esp-airsync-esp32.bin", "offset": 0}]
+                  },
+                  {
+                    "chipFamily": "ESP32-S3",
+                    "parts": [{"path": "${{ secrets.CF_R2_PUBLIC_URL }/releases/${{ github.ref_name }}/esp-airsync-esp32s3.bin", "offset": 0}]
+                  }
+                ]
+              }
+            ]
+          }
+          EOF
+
+      - name: Upload to R2
+        run: |
+          npm install -g wrangler
+          wrangler r2 object put ${{ secrets.CF_R2_BUCKET_NAME }}/releases/${{ github.ref_name }}/esp-airsync-esp32.bin \
+            --file firmware-esp32/esp-airsync-esp32.bin
+          wrangler r2 object put ${{ secrets.CF_R2_BUCKET_NAME }}/releases/${{ github.ref_name }}/esp-airsync-esp32s3.bin \
+            --file firmware-esp32s3/esp-airsync-esp32s3.bin
+          wrangler r2 object put ${{ secrets.CF_R2_BUCKET_NAME }}/releases/latest/manifest.json \
+            --file manifest.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
