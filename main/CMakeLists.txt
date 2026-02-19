@@ -1,7 +1,7 @@
 idf_component_register(
     SRCS "main.c" "wifi_manager.c" "web_server.c" "config_manager.c"
     INCLUDE_DIRS "."
-    EMBED_TXTFILES "web_config.html"
+    EMBED_TXTFILES "web_config.html" "web_update.html" "web_style.css"
     PRIV_REQUIRES
         nvs_flash
         esp_wifi

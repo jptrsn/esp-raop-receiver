@@ -9,11 +9,19 @@
 #include <stdio.h>
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
+#include "esp_chip_info.h"
+#include "esp_app_desc.h"
 
 static const char *TAG = "web_server";
 
 extern const char web_config_html_start[] asm("_binary_web_config_html_start");
 extern const char web_config_html_end[]   asm("_binary_web_config_html_end");
+
+extern const char web_update_html_start[] asm("_binary_web_update_html_start");
+extern const char web_update_html_end[]   asm("_binary_web_update_html_end");
+
+extern const char web_style_css_start[] asm("_binary_web_style_css_start");
+extern const char web_style_css_end[]   asm("_binary_web_style_css_end");
 
 static void str_replace(const char *src, const char *placeholder,
                         const char *value, char *dst, size_t dst_len)
@@ -219,6 +227,42 @@ static esp_err_t captive_portal_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t update_page_handler(httpd_req_t *req)
+{
+    const esp_app_desc_t *app_desc = esp_app_get_description();
+
+    esp_chip_info_t chip_info;
+    esp_chip_info(&chip_info);
+    const char *chip_model;
+    switch (chip_info.model) {
+        case CHIP_ESP32S3: chip_model = "esp32s3"; break;
+        case CHIP_ESP32:   chip_model = "esp32";   break;
+        default:           chip_model = "unknown"; break;
+    }
+
+    size_t html_len = web_update_html_end - web_update_html_start;
+    size_t buf_len = html_len + 64;
+
+    char *buf_a = malloc(buf_len);
+    char *buf_b = malloc(buf_len);
+    if (!buf_a || !buf_b) {
+        free(buf_a);
+        free(buf_b);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    str_replace(web_update_html_start, "{{FIRMWARE_VERSION}}", app_desc->version, buf_a, buf_len);
+    str_replace(buf_a,                 "{{CHIP_MODEL}}",       chip_model,         buf_b, buf_len);
+
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, buf_b, HTTPD_RESP_USE_STRLEN);
+
+    free(buf_a);
+    free(buf_b);
+    return ESP_OK;
+}
+
 static esp_err_t update_handler(httpd_req_t *req)
 {
     esp_ota_handle_t ota_handle = 0;
@@ -298,11 +342,19 @@ static esp_err_t update_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t style_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/css");
+    httpd_resp_send(req, web_style_css_start,
+                    web_style_css_end - web_style_css_start);
+    return ESP_OK;
+}
+
 httpd_handle_t web_server_start(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_uri_handlers = 13;
+    config.max_uri_handlers = 15;
     config.stack_size = 8192;
 
     httpd_handle_t server = NULL;
@@ -319,6 +371,12 @@ httpd_handle_t web_server_start(void)
         .handler = root_handler, .user_ctx = NULL
     };
     httpd_register_uri_handler(server, &root_uri);
+
+    httpd_uri_t style_uri = {
+        .uri = "/style.css", .method = HTTP_GET,
+        .handler = style_handler, .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &style_uri);
 
     httpd_uri_t save_wifi_uri = {
         .uri = "/save/wifi", .method = HTTP_POST,
@@ -343,6 +401,12 @@ httpd_handle_t web_server_start(void)
         .handler = restart_handler, .user_ctx = NULL
     };
     httpd_register_uri_handler(server, &restart_uri);
+
+    httpd_uri_t update_page_uri = {
+        .uri = "/update", .method = HTTP_GET,
+        .handler = update_page_handler, .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &update_page_uri);
 
     httpd_uri_t update_uri = {
         .uri = "/update", .method = HTTP_POST,

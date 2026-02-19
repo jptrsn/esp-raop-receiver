@@ -1,0 +1,125 @@
+/* Base fallback styles - Tailwind will override when available */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+    font-family: Arial, sans-serif;
+    background: #f3f4f6;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    color: #374151;
+}
+
+.max-w-2xl {
+    max-width: 672px;
+    margin: 0 auto;
+    padding: 2.5rem 1rem;
+}
+
+h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #1f2937;
+    margin-bottom: 2rem;
+}
+
+h2 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 1.25rem;
+}
+
+/* Cards */
+.bg-white {
+    background: #ffffff;
+    border-radius: 1rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+/* Form elements */
+label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #4b5563;
+    margin-bottom: 0.25rem;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="number"],
+input[type="file"] {
+    width: 100%;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    margin-bottom: 1.25rem;
+    outline: none;
+}
+
+input:focus {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 2px rgba(96,165,250,0.3);
+}
+
+/* Buttons */
+button[type="submit"],
+button[onclick] {
+    background: #3b82f6;
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 0.5rem 1.25rem;
+    border: none;
+    border-radius: 0.5rem;
+    cursor: pointer;
+}
+
+button[type="submit"]:hover,
+button[onclick]:hover {
+    background: #2563eb;
+}
+
+/* Restart banner */
+#restart-banner {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    background: #f59e0b;
+    color: white;
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    z-index: 50;
+}
+
+#restart-banner button {
+    background: white;
+    color: #d97706;
+    font-weight: 600;
+    padding: 0.4rem 1rem;
+    border-radius: 0.5rem;
+    border: none;
+    cursor: pointer;
+}
+
+/* Links */
+a { color: #3b82f6; }
+a:hover { text-decoration: underline; }
+
+/* Utility */
+.hidden { display: none !important; }
+
+p { margin: 0 0 1rem; }
+
+code {
+    background: #f3f4f6;
+    padding: 0.1rem 0.25rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+}
