@@ -10,6 +10,7 @@
 #include "web_server.h"
 #include "i2s_output.h"
 #include "esp_raop_receiver.h"
+#include "config_manager.h"
 #include "esp_mac.h"
 #include "lwip/udp.h"
 #include "lwip/dns.h"
@@ -77,13 +78,14 @@ static void raop_event_handler(raop_event_t event, void *event_data, void *user_
     }
 }
 
-static void start_airplay_receiver(void)
+static void start_airplay_receiver(const char *device_name)
 {
     raop_config_t config = {
-        .volume_mode    = RAOP_VOLUME_SOFTWARE,
-        .mdns_mode      = RAOP_MDNS_MANAGED,
+        .device_name     = device_name,
+        .volume_mode     = RAOP_VOLUME_SOFTWARE,
+        .mdns_mode       = RAOP_MDNS_MANAGED,
         .audio_output_cb = audio_output_callback,
-        .event_cb       = raop_event_handler,
+        .event_cb        = raop_event_handler,
     };
 
     esp_err_t err = raop_init(&config, &raop_handle);
@@ -160,6 +162,9 @@ static void start_dns_server(void)
 
 void app_main(void)
 {
+    app_config_t app_config = {0};
+    config_manager_load(&app_config);
+
     esp_err_t ret;
 
     ESP_LOGI(TAG, "ESP AirPlay Receiver starting...");
@@ -173,7 +178,7 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     // Initialize I2S output
-    i2s_output_init();
+    i2s_output_init(app_config.bck_pin, app_config.ws_pin, app_config.dout_pin);
 
     // Initialize WiFi
     ESP_LOGI(TAG, "About to initialize WiFi manager...");
@@ -234,7 +239,7 @@ void app_main(void)
             vTaskDelay(pdMS_TO_TICKS(1000));
 
             // Now start AirPlay receiver
-            start_airplay_receiver();
+            start_airplay_receiver(app_config.device_name);
         } else {
             ESP_LOGE(TAG, "Failed to connect to WiFi after 30 seconds");
         }

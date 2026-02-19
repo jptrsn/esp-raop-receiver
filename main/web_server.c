@@ -1,175 +1,211 @@
 #include "web_server.h"
 #include "wifi_manager.h"
+#include "config_manager.h"
 #include "esp_log.h"
 #include "esp_http_server.h"
+#include "esp_system.h"
 #include <string.h>
 #include <ctype.h>
+#include <stdio.h>
 
 static const char *TAG = "web_server";
 
-// HTML for the configuration page
-static const char *config_html =
-    "<!DOCTYPE html>"
-    "<html>"
-    "<head>"
-    "<title>ESP AirPlay Config</title>"
-    "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-    "<style>"
-    "body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }"
-    "h1 { color: #333; }"
-    "form { background: #f4f4f4; padding: 20px; border-radius: 5px; }"
-    "label { display: block; margin: 10px 0 5px; }"
-    "input { width: 100%; padding: 8px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }"
-    "button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }"
-    "button:hover { background: #0056b3; }"
-    ".success { color: green; margin-top: 10px; }"
-    ".error { color: red; margin-top: 10px; }"
-    "</style>"
-    "</head>"
-    "<body>"
-    "<h1>ESP AirPlay Configuration</h1>"
-    "<form action='/save' method='post'>"
-    "<label for='ssid'>WiFi SSID:</label>"
-    "<input type='text' id='ssid' name='ssid' required>"
-    "<label for='password'>WiFi Password:</label>"
-    "<input type='password' id='password' name='password' required>"
-    "<label for='device_name'>Device Name (optional):</label>"
-    "<input type='text' id='device_name' name='device_name' placeholder='ESP-AirPlay'>"
-    "<button type='submit'>Save & Restart</button>"
-    "</form>"
-    "</body>"
-    "</html>";
+extern const char web_config_html_start[] asm("_binary_web_config_html_start");
+extern const char web_config_html_end[]   asm("_binary_web_config_html_end");
 
-static const char *success_html =
-    "<!DOCTYPE html>"
-    "<html>"
-    "<head>"
-    "<title>Success</title>"
-    "<meta http-equiv='refresh' content='5;url=/'>"
-    "<style>"
-    "body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; text-align: center; }"
-    "h1 { color: #28a745; }"
-    "</style>"
-    "</head>"
-    "<body>"
-    "<h1>Configuration Saved!</h1>"
-    "<p>Device will restart and connect to your WiFi network...</p>"
-    "<p>This page will redirect in 5 seconds.</p>"
-    "</body>"
-    "</html>";
+static void str_replace(const char *src, const char *placeholder,
+                        const char *value, char *dst, size_t dst_len)
+{
+    const char *pos = strstr(src, placeholder);
+    if (!pos) {
+        snprintf(dst, dst_len, "%s", src);
+        return;
+    }
+    size_t prefix_len = pos - src;
+    snprintf(dst, dst_len, "%.*s%s%s",
+             (int)prefix_len, src,
+             value,
+             pos + strlen(placeholder));
+}
 
 // Handler for root page
 static esp_err_t root_handler(httpd_req_t *req)
 {
+    app_config_t config = {0};
+    config_manager_load(&config);
+
+    const char *saved_ssid = wifi_manager_get_saved_ssid();
+
+    // Work through each placeholder one at a time, alternating buffers
+    size_t html_len = web_config_html_end - web_config_html_start;
+    size_t buf_len = html_len + 256;
+
+    char *buf_a = malloc(buf_len);
+    char *buf_b = malloc(buf_len);
+    if (!buf_a || !buf_b) {
+        free(buf_a);
+        free(buf_b);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    str_replace(web_config_html_start, "{{CURRENT_SSID}}",        saved_ssid,          buf_a, buf_len);
+    str_replace(buf_a,                 "{{CURRENT_DEVICE_NAME}}", config.device_name,  buf_b, buf_len);
+    str_replace(buf_b,                 "{{DEFAULT_DEVICE_NAME}}", config.device_name,  buf_a, buf_len);
+
+    char pin_str[8];
+    snprintf(pin_str, sizeof(pin_str), "%d", config.bck_pin);
+    str_replace(buf_a, "{{BCK_PIN}}", pin_str, buf_b, buf_len);
+
+    snprintf(pin_str, sizeof(pin_str), "%d", config.ws_pin);
+    str_replace(buf_b, "{{WS_PIN}}", pin_str, buf_a, buf_len);
+
+    snprintf(pin_str, sizeof(pin_str), "%d", config.dout_pin);
+    str_replace(buf_a, "{{DOUT_PIN}}", pin_str, buf_b, buf_len);
+
     httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, config_html, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send(req, buf_b, HTTPD_RESP_USE_STRLEN);
+
+    free(buf_a);
+    free(buf_b);
     return ESP_OK;
 }
 
-// URL decode helper function
-static void url_decode(char *dst, const char *src)
+static void url_decode(char *dst, const char *src, size_t dst_len)
 {
     char a, b;
-    while (*src) {
+    size_t i = 0;
+    while (*src && i < dst_len - 1) {
         if ((*src == '%') && ((a = src[1]) && (b = src[2])) && (isxdigit(a) && isxdigit(b))) {
-            if (a >= 'a') a -= 'a'-'A';
+            if (a >= 'a') a -= 'a' - 'A';
             if (a >= 'A') a -= ('A' - 10);
             else a -= '0';
-            if (b >= 'a') b -= 'a'-'A';
+            if (b >= 'a') b -= 'a' - 'A';
             if (b >= 'A') b -= ('A' - 10);
             else b -= '0';
-            *dst++ = 16*a + b;
+            dst[i++] = 16 * a + b;
             src += 3;
         } else if (*src == '+') {
-            *dst++ = ' ';
+            dst[i++] = ' ';
             src++;
         } else {
-            *dst++ = *src++;
+            dst[i++] = *src++;
         }
     }
-    *dst = '\0';
+    dst[i] = '\0';
 }
 
-// Parse form data
-static bool parse_form_data(const char *buf, char *ssid, char *password, char *device_name)
+static bool get_form_field(const char *body, const char *key, char *dst, size_t dst_len)
 {
-    char *token, *saveptr;
-    char *buf_copy = strdup(buf);
-    if (!buf_copy) return false;
-
-    token = strtok_r(buf_copy, "&", &saveptr);
-    while (token != NULL) {
-        char *key = strtok(token, "=");
-        char *value = strtok(NULL, "=");
-
-        if (key && value) {
-            if (strcmp(key, "ssid") == 0) {
-                url_decode(ssid, value);
-            } else if (strcmp(key, "password") == 0) {
-                url_decode(password, value);
-            } else if (strcmp(key, "device_name") == 0) {
-                url_decode(device_name, value);
-            }
-        }
-
-        token = strtok_r(NULL, "&", &saveptr);
+    char search[64];
+    snprintf(search, sizeof(search), "%s=", key);
+    const char *pos = strstr(body, search);
+    if (!pos) {
+        dst[0] = '\0';
+        return false;
     }
-
-    free(buf_copy);
-    return (strlen(ssid) > 0 && strlen(password) > 0);
+    pos += strlen(search);
+    const char *end = strchrnul(pos, '&');
+    size_t len = end - pos;
+    char *encoded = strndup(pos, len);
+    if (!encoded) {
+        dst[0] = '\0';
+        return false;
+    }
+    url_decode(dst, encoded, dst_len);
+    free(encoded);
+    return strlen(dst) > 0;
 }
 
-// Handler for save endpoint
-static esp_err_t save_handler(httpd_req_t *req)
+static esp_err_t read_request_body(httpd_req_t *req, char *buf, size_t buf_len)
 {
-    char buf[512];
-    char ssid[32] = {0};
-    char password[64] = {0};
-    char device_name[32] = {0};
-    int ret, remaining = req->content_len;
-
-    if (remaining > sizeof(buf) - 1) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Content too long");
+    if (req->content_len >= buf_len) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Request too large");
         return ESP_FAIL;
     }
-
-    ret = httpd_req_recv(req, buf, remaining);
+    int ret = httpd_req_recv(req, buf, req->content_len);
     if (ret <= 0) {
-        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
-            httpd_resp_send_408(req);
-        }
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) httpd_resp_send_408(req);
         return ESP_FAIL;
     }
     buf[ret] = '\0';
+    return ESP_OK;
+}
 
-    ESP_LOGI(TAG, "Received form data: %s", buf);
+static esp_err_t save_wifi_handler(httpd_req_t *req)
+{
+    char body[256];
+    if (read_request_body(req, body, sizeof(body)) != ESP_OK) return ESP_FAIL;
 
-    if (!parse_form_data(buf, ssid, password, device_name)) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid form data");
+    char ssid[32] = {0};
+    char password[64] = {0};
+
+    get_form_field(body, "ssid", ssid, sizeof(ssid));
+    get_form_field(body, "password", password, sizeof(password));
+
+    if (strlen(ssid) == 0 || strlen(password) == 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing fields");
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Parsed - SSID: %s, Device: %s", ssid,
-             strlen(device_name) > 0 ? device_name : "default");
-
-    // Save credentials
-    if (wifi_manager_save_credentials(ssid, password)) {
-        // TODO: Save device name to NVS as well
-        httpd_resp_set_type(req, "text/html");
-        httpd_resp_send(req, success_html, HTTPD_RESP_USE_STRLEN);
-
-        // Schedule restart after response is sent
-        ESP_LOGI(TAG, "Configuration saved. Restarting in 2 seconds...");
-
-        // Delay to allow response to be sent, then restart
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        esp_restart();
-
-        return ESP_OK;
-    } else {
+    if (!wifi_manager_save_credentials(ssid, password)) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save");
         return ESP_FAIL;
     }
+
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+static esp_err_t save_device_handler(httpd_req_t *req)
+{
+    char body[128];
+    if (read_request_body(req, body, sizeof(body)) != ESP_OK) return ESP_FAIL;
+
+    char device_name[32] = {0};
+    get_form_field(body, "device_name", device_name, sizeof(device_name));
+
+    if (config_manager_save_device(device_name) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid device name");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+static esp_err_t save_audio_handler(httpd_req_t *req)
+{
+    char body[128];
+    if (read_request_body(req, body, sizeof(body)) != ESP_OK) return ESP_FAIL;
+
+    char val[8];
+    int bck_pin, ws_pin, dout_pin;
+
+    if (!get_form_field(body, "bck_pin", val, sizeof(val)))  { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing bck_pin");  return ESP_FAIL; }
+    bck_pin = atoi(val);
+
+    if (!get_form_field(body, "ws_pin", val, sizeof(val)))   { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing ws_pin");   return ESP_FAIL; }
+    ws_pin = atoi(val);
+
+    if (!get_form_field(body, "dout_pin", val, sizeof(val))) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing dout_pin"); return ESP_FAIL; }
+    dout_pin = atoi(val);
+
+    if (config_manager_save_audio(bck_pin, ws_pin, dout_pin) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+static esp_err_t restart_handler(httpd_req_t *req)
+{
+    httpd_resp_send(req, NULL, 0);
+    vTaskDelay(pdMS_TO_TICKS(200));
+    esp_restart();
+    return ESP_OK;
 }
 
 static esp_err_t captive_portal_handler(httpd_req_t *req)
@@ -185,70 +221,74 @@ httpd_handle_t web_server_start(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_uri_handlers = 8;
+    config.max_uri_handlers = 12;
     config.stack_size = 8192;
 
     httpd_handle_t server = NULL;
 
     ESP_LOGI(TAG, "Starting web server on port %d", config.server_port);
 
-    if (httpd_start(&server, &config) == ESP_OK) {
-        // Register root and save handlers first
-        httpd_uri_t root_uri = {
-            .uri       = "/",
-            .method    = HTTP_GET,
-            .handler   = root_handler,
-            .user_ctx  = NULL
-        };
-        httpd_register_uri_handler(server, &root_uri);
-
-        httpd_uri_t save_uri = {
-            .uri       = "/save",
-            .method    = HTTP_POST,
-            .handler   = save_handler,
-            .user_ctx  = NULL
-        };
-        httpd_register_uri_handler(server, &save_uri);
-
-        // Register captive portal routes
-        httpd_uri_t generate_204 = {
-            .uri = "/generate_204",
-            .method = HTTP_GET,
-            .handler = captive_portal_handler,
-            .user_ctx = NULL
-        };
-        httpd_register_uri_handler(server, &generate_204);
-
-        httpd_uri_t gen_204 = {
-            .uri = "/gen_204",
-            .method = HTTP_GET,
-            .handler = captive_portal_handler,
-            .user_ctx = NULL
-        };
-        httpd_register_uri_handler(server, &gen_204);
-
-        httpd_uri_t hotspot_detect = {
-            .uri = "/hotspot-detect.html",
-            .method = HTTP_GET,
-            .handler = captive_portal_handler,
-            .user_ctx = NULL
-        };
-        httpd_register_uri_handler(server, &hotspot_detect);
-
-        httpd_uri_t connecttest = {
-            .uri = "/connecttest.txt",
-            .method = HTTP_GET,
-            .handler = captive_portal_handler,
-            .user_ctx = NULL
-        };
-        httpd_register_uri_handler(server, &connecttest);
-
-        ESP_LOGI(TAG, "Web server started successfully");
-        return server;
+    if (httpd_start(&server, &config) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start web server");
+        return NULL;
     }
 
-    ESP_LOGE(TAG, "Failed to start web server");
-    return NULL;
+    httpd_uri_t root_uri = {
+        .uri = "/", .method = HTTP_GET,
+        .handler = root_handler, .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &root_uri);
+
+    httpd_uri_t save_wifi_uri = {
+        .uri = "/save/wifi", .method = HTTP_POST,
+        .handler = save_wifi_handler, .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &save_wifi_uri);
+
+    httpd_uri_t save_device_uri = {
+        .uri = "/save/device", .method = HTTP_POST,
+        .handler = save_device_handler, .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &save_device_uri);
+
+    httpd_uri_t save_audio_uri = {
+        .uri = "/save/audio", .method = HTTP_POST,
+        .handler = save_audio_handler, .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &save_audio_uri);
+
+    httpd_uri_t restart_uri = {
+        .uri = "/restart", .method = HTTP_POST,
+        .handler = restart_handler, .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &restart_uri);
+
+    httpd_uri_t generate_204 = {
+        .uri = "/generate_204", .method = HTTP_GET,
+        .handler = captive_portal_handler, .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &generate_204);
+
+    httpd_uri_t gen_204 = {
+        .uri = "/gen_204", .method = HTTP_GET,
+        .handler = captive_portal_handler, .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &gen_204);
+
+    httpd_uri_t hotspot_detect = {
+        .uri = "/hotspot-detect.html", .method = HTTP_GET,
+        .handler = captive_portal_handler, .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &hotspot_detect);
+
+    httpd_uri_t connecttest = {
+        .uri = "/connecttest.txt", .method = HTTP_GET,
+        .handler = captive_portal_handler, .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &connecttest);
+
+    ESP_LOGI(TAG, "Web server started successfully");
+    return server;
 }
 
 void web_server_stop(httpd_handle_t server)

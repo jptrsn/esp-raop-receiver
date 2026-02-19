@@ -2,8 +2,6 @@
 #include "driver/i2s_std.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
-#include "nvs_flash.h"
-#include "nvs.h"
 #include "freertos/FreeRTOS.h"
 
 static const char *TAG = "i2s_output";
@@ -11,31 +9,7 @@ static float current_volume = 1.0f;
 static int16_t *volume_buffer = NULL;
 static size_t volume_buffer_size = 0;
 
-#define I2S_NAMESPACE "i2s_config"
-#define I2S_BCK_PIN_KEY "bck_pin"
-#define I2S_WS_PIN_KEY "ws_pin"
-#define I2S_DOUT_PIN_KEY "dout_pin"
-
-// Default pins (as per our pin assignments)
-#define DEFAULT_BCK_PIN   (GPIO_NUM_26)
-#define DEFAULT_WS_PIN    (GPIO_NUM_25)
-#define DEFAULT_DOUT_PIN  (GPIO_NUM_22)
-
 static i2s_chan_handle_t tx_handle = NULL;
-
-static int load_pin_config(const char *key, int default_value)
-{
-    nvs_handle_t nvs_handle;
-    int32_t pin_value = default_value;
-
-    esp_err_t err = nvs_open(I2S_NAMESPACE, NVS_READONLY, &nvs_handle);
-    if (err == ESP_OK) {
-        nvs_get_i32(nvs_handle, key, &pin_value);
-        nvs_close(nvs_handle);
-    }
-
-    return (int)pin_value;
-}
 
 void i2s_output_set_volume(float volume)
 {
@@ -43,14 +17,9 @@ void i2s_output_set_volume(float volume)
     ESP_LOGI(TAG, "Volume set to %.2f (%d%%)", current_volume, (int)(current_volume * 100));
 }
 
-void i2s_output_init(void)
+void i2s_output_init(int bck_pin, int ws_pin, int dout_pin)
 {
     esp_err_t ret;
-
-    // Load pin configuration from NVS (or use defaults)
-    int bck_pin = load_pin_config(I2S_BCK_PIN_KEY, DEFAULT_BCK_PIN);
-    int ws_pin = load_pin_config(I2S_WS_PIN_KEY, DEFAULT_WS_PIN);
-    int dout_pin = load_pin_config(I2S_DOUT_PIN_KEY, DEFAULT_DOUT_PIN);
 
     ESP_LOGI(TAG, "Initializing I2S with pins - BCK: %d, WS: %d, DOUT: %d",
              bck_pin, ws_pin, dout_pin);

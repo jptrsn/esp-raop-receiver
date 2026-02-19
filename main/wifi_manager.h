@@ -15,6 +15,9 @@ bool wifi_manager_is_connected(void);
 // Get current IP address (returns empty string if not connected)
 const char* wifi_manager_get_ip(void);
 
+// Get saved WiFi SSID from NVS (returns empty string if none saved)
+const char* wifi_manager_get_saved_ssid(void);
+
 bool wifi_manager_is_ap_mode(void);
 
 #endif // WIFI_MANAGER_H

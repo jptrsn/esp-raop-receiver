@@ -19,6 +19,7 @@ static const char *TAG = "wifi_manager";
 
 static bool s_wifi_connected = false;
 static char s_ip_address[16] = "";
+static char s_saved_ssid[32] = "";
 static esp_netif_t *s_sta_netif = NULL;
 static esp_netif_t *s_ap_netif = NULL;
 static bool s_ap_mode = false;
@@ -303,6 +304,21 @@ bool wifi_manager_save_credentials(const char *ssid, const char *password)
 
     ESP_LOGE(TAG, "Failed to commit NVS: %s", esp_err_to_name(err));
     return false;
+}
+
+const char* wifi_manager_get_saved_ssid(void)
+{
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(WIFI_NAMESPACE, NVS_READONLY, &nvs_handle);
+    if (err != ESP_OK) {
+        return s_saved_ssid; // returns ""
+    }
+
+    size_t len = sizeof(s_saved_ssid);
+    nvs_get_str(nvs_handle, WIFI_SSID_KEY, s_saved_ssid, &len);
+    nvs_close(nvs_handle);
+
+    return s_saved_ssid;
 }
 
 bool wifi_manager_is_connected(void)
