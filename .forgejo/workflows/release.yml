@@ -13,7 +13,7 @@ on:
 
 jobs:
   build:
-    runs-on: codeberg-medium
+    runs-on: codeberg-small-lazy
     strategy:
       matrix:
         target: [esp32, esp32s3]
