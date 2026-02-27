@@ -64,7 +64,6 @@
 #define TS2MS(ts, rate) NTP2MS(TS2NTP(ts,rate))
 
 extern log_level 	raop_loglevel;
-static log_level 	*loglevel = &raop_loglevel;
 
 //#define __RTP_STORE
 
@@ -367,7 +366,7 @@ void rtp_flush_release(rtp_t *ctx) {
 void rtp_record(rtp_t *ctx, unsigned short seqno, unsigned rtptime) {
     ctx->first_seqno = (seqno || rtptime) ? seqno : -1;
 	ctx->state = RTP_WAIT;
-	LOG_INFO("[%p]: record %hu - %u", ctx, seqno, rtptime);
+	LOG_DEBUG("[%p]: record %hu - %u", ctx, seqno, rtptime);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -521,12 +520,14 @@ static void buffer_put_packet(rtp_t *ctx, seq_t seqno, unsigned rtptime, bool fi
 	}
 
 	if (ctx->in_frames++ > 1000) {
-		LOG_INFO("[%p]: fill [level:%hu rec:%u] [W:%hu R:%hu]", ctx, ctx->ab_write - ctx->ab_read, ctx->resent_rec, ctx->ab_write, ctx->ab_read);
+		LOG_DEBUG("[%p]: fill [level:%hu rec:%u] [W:%hu R:%hu]", ctx, ctx->ab_write - ctx->ab_read, ctx->resent_rec, ctx->ab_write, ctx->ab_read);
 		ctx->in_frames = 0;
 	}
 
+	u16_t out_len = 0;
 	if (abuf) {
-		alac_decode(ctx, abuf->data, data, len, &abuf->len);
+		alac_decode(ctx, abuf->data, data, len, &out_len);
+		abuf->len = out_len;
 		abuf->ready = 1;
         abuf->missed = 0;
 		// this is the local rtptime when this frame is expected to play
@@ -587,7 +588,7 @@ static void buffer_push_packet(rtp_t *ctx) {
 	} while (seq_order(ctx->ab_read, ctx->ab_write));
 
 	if (ctx->out_frames > 1000) {
-		LOG_INFO("[%p]: drain [level:%hd head:%d ms] [W:%hu R:%hu] [req:%u sil:%u dis:%u]",
+		LOG_DEBUG("[%p]: drain [level:%hd head:%d ms] [W:%hu R:%hu] [req:%u sil:%u dis:%u]",
 				ctx, ctx->ab_write - ctx->ab_read, playtime - now, ctx->ab_write, ctx->ab_read,
 				ctx->resent_req, ctx->silent_frames, ctx->discarded);
 		ctx->out_frames = 0;

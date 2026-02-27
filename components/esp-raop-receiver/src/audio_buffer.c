@@ -41,7 +41,7 @@ static uint32_t gettime_ms(void) {
 }
 
 static void audio_output_task(void *arg) {
-    ESP_LOGI(TAG, "Audio output task started");
+    ESP_LOGD(TAG, "Audio output task started");
 
     while (audio_buf.running) {
         // Wait until we have a start time
@@ -109,14 +109,14 @@ static void audio_output_task(void *arg) {
         }
     }
 
-    ESP_LOGI(TAG, "Audio output task exiting");
+    ESP_LOGD(TAG, "Audio output task exiting");
     vTaskSuspend(NULL);
 }
 
 void audio_buffer_init(audio_output_callback_t output_cb, void *user_ctx) {
     // If already initialized, just return
     if (audio_buf.frames && audio_buf.mutex) {
-        ESP_LOGI(TAG, "Audio buffer already initialized");
+        ESP_LOGD(TAG, "Audio buffer already initialized");
         return;
     }
 
@@ -187,12 +187,12 @@ void audio_buffer_set_start_time(uint32_t playtime) {
     }
 
     audio_buf.start_time = playtime;
-    ESP_LOGI(TAG, "Start time set to %u ms", playtime);
+    ESP_LOGD(TAG, "Start time set to %u ms", playtime);
 }
 
 void audio_buffer_stop(void) {
     if (!audio_buf.running) {
-        ESP_LOGI(TAG, "Audio buffer already stopped");
+        ESP_LOGD(TAG, "Audio buffer already stopped");
         return;
     }
 
@@ -263,7 +263,7 @@ void audio_buffer_flush(void) {
 
     xSemaphoreGive(audio_buf.mutex);
 
-    ESP_LOGI(TAG, "Buffer flushed");
+    ESP_LOGD(TAG, "Buffer flushed");
 }
 
 void audio_buffer_deinit(void) {
@@ -315,12 +315,12 @@ void audio_buffer_get_timing(uint32_t *frames_buffered, uint32_t *head_playtime)
 
 void audio_buffer_skip_frames(uint32_t count) {
     timing_correction.skip_frames = count;
-    ESP_LOGI(TAG, "Will skip %u frames", count);
+    ESP_LOGD(TAG, "Will skip %u frames", count);
 }
 
 void audio_buffer_pause_frames(uint32_t count) {
     timing_correction.pause_frames = count;
-    ESP_LOGI(TAG, "Will pause %u frames", count);
+    ESP_LOGD(TAG, "Will pause %u frames", count);
 }
 
 bool audio_buffer_is_ready(void) {

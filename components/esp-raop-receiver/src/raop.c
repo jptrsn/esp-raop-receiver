@@ -59,7 +59,6 @@ typedef struct raop_ctx_s {
 } raop_ctx_t;
 
 extern log_level	raop_loglevel;
-static log_level 	*loglevel = &raop_loglevel;
 
 static void		rtsp_thread(void *arg);
 static void 	search_remote(void *args);
@@ -145,8 +144,8 @@ struct raop_ctx_s *raop_create(uint32_t host, char *name,
   ctx->xTaskBuffer = (StaticTask_t*) heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 	BaseType_t core_id = (CONFIG_PTHREAD_TASK_CORE_DEFAULT == -1) ? tskNO_AFFINITY : CONFIG_PTHREAD_TASK_CORE_DEFAULT;
 	ctx->thread = xTaskCreateStaticPinnedToCore( (TaskFunction_t) rtsp_thread, "RTSP", RTSP_STACK_SIZE, ctx,
-																							ESP_TASK_PRIO_MIN + 2, ctx->xStack, ctx->xTaskBuffer,
-																							tskNO_AFFINITY);
+                                             ESP_TASK_PRIO_MIN + 2, ctx->xStack, ctx->xTaskBuffer,
+                                             core_id);
 
 	return ctx;
 }
@@ -264,7 +263,7 @@ bool raop_cmd(struct raop_ctx_s *ctx, raop_internal_event_t event, void *param) 
 		buf = http_send(sock, method, headers);
 		len = recv(sock, resp, 512, 0);
 		if (len > 0) resp[len-1] = '\0';
-		LOG_INFO("[%p]: sending remote\n%s<== received ==>\n%s", ctx, buf, resp);
+		LOG_DEBUG("[%p]: sending remote\n%s<== received ==>\n%s", ctx, buf, resp);
 
 		if (method) free(method);
 		if (buf) free(buf);
@@ -339,7 +338,6 @@ static void apple_challenge(raop_ctx_t *ctx, int sock, key_data_t *req_headers, 
 		LOG_INFO("[%p]: IP was missing, trying to get it %s", ctx, inet_ntoa(ctx->host));
 	}
 
-	int chall_len;
 	char *buf_pad = NULL;
 
 	// need to pad the base64 string as apple devices don't
@@ -380,7 +378,7 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 	int len;
 	bool success = true;
 
-	LOG_INFO("[%p]: received %s", ctx, method);
+	LOG_DEBUG("[%p]: received %s", ctx, method);
 
 	if (!http_parse(sock, method, headers, &body, &len)) {
 		if (body) free(body);
@@ -533,7 +531,7 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
 			sscanf(p, "%*[^:]:%u/%u/%u", &start, &current, &stop);
 			current = ((current - start) / 44100) * 1000;
 			if (stop) stop = ((stop - start) / 44100) * 1000;
-			LOG_INFO("[%p]: SET PARAMETER progress %d/%u %s", ctx, current, stop, p);
+			LOG_DEBUG("[%p]: SET PARAMETER progress %d/%u %s", ctx, current, stop, p);
 			success = ctx->cmd_cb(RAOP_INT_PROGRESS, max(current, 0), stop);
 		} else if (body && ((p = kd_lookup(headers, "Content-Type")) != NULL) && !strcasecmp(p, "application/x-dmap-tagged")) {
 			struct metadata_s metadata;
