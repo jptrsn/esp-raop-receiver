@@ -214,7 +214,7 @@ rtp_resp_t rtp_init(struct in_addr host, int latency, char *aeskey, char *aesiv,
 	char *arg;
 	int fmtp[12];
 	bool rc = true;
-	rtp_t *ctx = calloc(1, sizeof(rtp_t));
+	rtp_t *ctx = heap_caps_calloc(1, sizeof(rtp_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 	rtp_resp_t resp = { 0, 0, 0, NULL };
 
 	if (!ctx) return resp;

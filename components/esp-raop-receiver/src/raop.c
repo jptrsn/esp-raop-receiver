@@ -23,7 +23,7 @@
 #include "dmap_parser.h"
 #include "log_util.h"
 
-#define RTSP_STACK_SIZE 	(8*1024)
+#define RTSP_STACK_SIZE 	(24*1024)
 #define SEARCH_STACK_SIZE	(3*1024)
 
 typedef struct raop_ctx_s {
@@ -80,7 +80,7 @@ struct raop_ctx_s *raop_create(uint32_t host, char *name,
 						unsigned char mac[6], int latency,
 						raop_cmd_cb_t cmd_cb, raop_data_cb_t data_cb,
 						raop_mdns_mode_t mdns_mode) {
-	struct raop_ctx_s *ctx = malloc(sizeof(struct raop_ctx_s));
+	struct raop_ctx_s *ctx = heap_caps_malloc(sizeof(struct raop_ctx_s), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 	struct sockaddr_in addr;
 	char id[64];
 
