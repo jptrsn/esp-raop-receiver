@@ -9,6 +9,7 @@ if [ -z "$TAG" ]; then
 fi
 
 REPO="Edu_Coder/esp-airsync"
+ESPHOME_LIB_DIR="$(cd "$(dirname "$0")" && pwd)/components/raop_receiver/libs"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ -f "$SCRIPT_DIR/.env" ]; then
@@ -21,12 +22,23 @@ if [ -z "$CODEBERG_TOKEN" ]; then
 fi
 
 echo "Building esp32..."
-(idf.py fullclean && idf.py set-target esp32 && idf.py build)
+unset IDF_TARGET
+idf.py fullclean && idf.py set-target esp32 && idf.py build
 cp build/esp-airsync.bin esp-airsync-esp32.bin
+cp build/esp-idf/esp-raop-receiver/libesp-raop-receiver.a "$ESPHOME_LIB_DIR/esp32/libesp-raop-receiver.a"
 
 echo "Building esp32s3..."
-(idf.py fullclean && idf.py set-target esp32s3 && idf.py build)
+unset IDF_TARGET
+idf.py fullclean && idf.py set-target esp32s3 && idf.py build
 cp build/esp-airsync.bin esp-airsync-esp32s3.bin
+cp build/esp-idf/esp-raop-receiver/libesp-raop-receiver.a "$ESPHOME_LIB_DIR/esp32s3/libesp-raop-receiver.a"
+
+echo "Committing updated libraries..."
+git add "$ESPHOME_LIB_DIR"
+git commit -m "release: update precompiled libraries for $TAG"
+git tag "$TAG"
+git push origin main
+git push origin "$TAG"
 
 echo "Creating release $TAG..."
 RELEASE=$(curl -s -X POST \

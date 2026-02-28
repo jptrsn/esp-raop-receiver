@@ -25,7 +25,6 @@ extern log_level	util_loglevel;
 /*----------------------------------------------------------------------------*/
 /* locals */
 /*----------------------------------------------------------------------------*/
-static log_level 		*loglevel = &util_loglevel;
 
 static char *ltrim(char *s);
 static int read_line(int fd, char *line, int maxlen, int timeout);
@@ -287,7 +286,6 @@ static int read_line(int fd, char *line, int maxlen, int timeout)
 	struct pollfd pfds;
 	char buffer[512];
 	int n, count = 0;
-	char *line_start = line;
 
 	pfds.fd = fd;
 	pfds.events = POLLIN;

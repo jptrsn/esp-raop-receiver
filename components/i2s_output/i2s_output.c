@@ -77,7 +77,6 @@ void i2s_output_init(int bck_pin, int ws_pin, int dout_pin)
 
 void i2s_output_write(const uint8_t *data, size_t len)
 {
-    static uint32_t call_count = 0;
 
     if (!tx_handle) {
         ESP_LOGW(TAG, "I2S not initialized");
