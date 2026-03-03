@@ -29,6 +29,9 @@ static struct {
     uint32_t start_time;
     audio_output_callback_t output_cb;
     void *user_ctx;
+    // Optional PCM tap — called at output time, playtime ≈ now
+    audio_pcm_tap_cb_t tap_cb;
+    void *tap_user_ctx;
 } audio_buf = {0};
 
 static struct {
@@ -98,6 +101,9 @@ static void audio_output_task(void *arg) {
 
                 xSemaphoreGive(audio_buf.mutex);
 
+                if (audio_buf.tap_cb) {
+                    audio_buf.tap_cb(data, len, audio_buf.tap_user_ctx);
+                }
                 audio_buf.output_cb(data, len, audio_buf.user_ctx);
             } else {
                 xSemaphoreGive(audio_buf.mutex);
@@ -113,7 +119,8 @@ static void audio_output_task(void *arg) {
     vTaskSuspend(NULL);
 }
 
-void audio_buffer_init(audio_output_callback_t output_cb, void *user_ctx) {
+void audio_buffer_init(audio_output_callback_t output_cb, void *user_ctx,
+                       audio_pcm_tap_cb_t tap_cb) {
     // If already initialized, just return
     if (audio_buf.frames && audio_buf.mutex) {
         ESP_LOGD(TAG, "Audio buffer already initialized");
@@ -129,6 +136,7 @@ void audio_buffer_init(audio_output_callback_t output_cb, void *user_ctx) {
     // Store callback
     audio_buf.output_cb = output_cb;
     audio_buf.user_ctx = user_ctx;
+    audio_buf.tap_cb = tap_cb;
 
     // Allocate frame buffer in PSRAM
     audio_buf.frames = heap_caps_malloc(BUFFER_FRAMES * sizeof(audio_frame_t),

@@ -47,7 +47,8 @@ static bool internal_cmd_cb(raop_internal_event_t event, ...) {
                 *size = 0;
             }
 
-            audio_buffer_init(handle->config.audio_output_cb, handle->config.user_ctx);
+            audio_buffer_init(handle->config.audio_output_cb, handle->config.user_ctx,
+                  handle->config.pcm_tap_cb);
 
             if (handle->config.event_cb) {
                 handle->config.event_cb(RAOP_EVENT_CONNECTED, NULL, handle->config.user_ctx);

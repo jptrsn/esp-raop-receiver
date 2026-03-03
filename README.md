@@ -1,6 +1,7 @@
-# ESP32 Remote Audio Output Protocol (AirPlay) Receiver
+# ESP Air Sync
+## An ESP32 Remote Audio Output Protocol (AirPlay1) Receiver
 
-A high-quality RAOP audio receiver implementation for ESP32-WROVER-B with external DAC support, featuring multi-room synchronization and robust audio buffering.
+A high-quality RAOP audio receiver implementation for ESP32 boards with external PSRAM and a PCM5102a DAC, featuring multi-room synchronization and robust audio buffering.
 
 ## Features
 
@@ -10,6 +11,7 @@ A high-quality RAOP audio receiver implementation for ESP32-WROVER-B with extern
 - **Software Volume Control**: Smooth volume adjustment
 - **ALAC Decoding**: Apple Lossless audio codec support
 - **Robust Buffering**: ~23 seconds of audio buffering with automatic drift correction
+- **WLED Audio-Reactive Sync**: Real-time FFT analysis streamed to WLED devices for audio-reactive lighting effects (optional)
 - **Web Configuration**: Simple web interface for WiFi setup and I²S pin configuration
 - **WiFi Provisioning**: Easy setup via captive portal
 
@@ -71,6 +73,40 @@ idf.py -p /dev/ttyUSB0 flash monitor
 5. Configure device name, if desired
 5. Reboot device to save settings and connect to configured wifi
 
+## WLED Audio-Reactive Sync
+
+esp-airsync can stream real-time FFT audio analysis to a WLED device, enabling audio-reactive lighting effects synchronized to your music.
+
+### Requirements
+
+- A WLED device running on an ESP32 (ESP8266 is not supported for audio sync)
+- WLED firmware with the AudioReactive usermod enabled
+
+### WLED Device Setup
+
+1. Open the WLED web interface on your WLED device
+2. Navigate to **Config → Usermods**
+3. Scroll to the **AudioReactive** section at the bottom
+4. Set **Sync mode** from `Off` to `Receive`
+5. Save and reboot the WLED device
+
+### esp-airsync Configuration
+
+In the esp-airsync web interface, configure the following settings and reboot to apply:
+
+| Setting | Description |
+|---|---|
+| **Enabled** | Enable or disable WLED sync |
+| **Host** | IP address or multicast group of your WLED device (default: `239.0.0.1` for multicast) |
+| **Port** | UDP port for audio sync packets (default: `11988`) |
+| **Channel** | Audio channel to analyse: `mono` (L+R mixdown), `left`, or `right` |
+
+> **Note**: All configuration changes require a reboot to take effect.
+
+### How It Works
+
+Audio frames are captured at the point of I²S output — when audio is actually playing — and passed through a 1024-point FFT. The resulting 16-band frequency spectrum is packed into a WLED V2 UDP audio sync packet and sent to the configured destination. This produces lighting effects that are accurately synchronized to the audio you hear.
+
 ### Usage
 
 Once configured:
@@ -80,10 +116,11 @@ Once configured:
 
 ## Architecture
 
-- **RTSP Server**: Handles AirPlay control protocol (Core 0)
-- **RTP Receiver**: Manages audio packet reception and jitter buffering (Core 1)
+- **RTSP Server**: Handles AirPlay control protocol
+- **RTP Receiver**: Manages audio packet reception, ALAC decoding, and jitter buffering
 - **Audio Buffer**: Large PSRAM-based ring buffer with timing-aware playback (Core 1)
-- **I²S Output**: Hardware audio interface with software volume control
+- **I²S Output**: Hardware audio interface with software volume control (Core 1)
+- **WLED Sync**: FFT computation (Core 0) and UDP sender (Core 1) for audio-reactive lighting
 - **Timing Sync**: NTP-based synchronization for multi-room playback
 
 ## Credits and Acknowledgments
@@ -179,6 +216,7 @@ Contributions are welcome! Please:
 
 - [ ] Additional DAC support (I²S variants)
 - [ ] Additional board variant builds
+- [ ] Additional WLED sync customization (band scaling, sensitivity)
 
 ## Support
 

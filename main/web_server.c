@@ -73,7 +73,24 @@ static esp_err_t root_handler(httpd_req_t *req)
     snprintf(pin_str, sizeof(pin_str), "%d", config.dout_pin);
     str_replace(buf_a, "{{DOUT_PIN}}", pin_str, buf_b, buf_len);
 
+    // WLED placeholders
+    str_replace(buf_b, "{{WLED_ENABLED_CHECKED}}",
+                config.wled_enabled ? "checked" : "", buf_a, buf_len);
+    str_replace(buf_a, "{{WLED_HOST}}", config.wled_host, buf_b, buf_len);
+
+    char port_str[8];
+    snprintf(port_str, sizeof(port_str), "%u", config.wled_port);
+    str_replace(buf_b, "{{WLED_PORT}}", port_str, buf_a, buf_len);
+
+    str_replace(buf_a, "{{WLED_CHANNEL_MONO_SEL}}",
+                config.wled_channel == 0 ? "selected" : "", buf_b, buf_len);
+    str_replace(buf_b, "{{WLED_CHANNEL_LEFT_SEL}}",
+                config.wled_channel == 1 ? "selected" : "", buf_a, buf_len);
+    str_replace(buf_a, "{{WLED_CHANNEL_RIGHT_SEL}}",
+                config.wled_channel == 2 ? "selected" : "", buf_b, buf_len);
+
     httpd_resp_set_type(req, "text/html");
+
     httpd_resp_send(req, buf_b, HTTPD_RESP_USE_STRLEN);
 
     free(buf_a);
@@ -350,11 +367,46 @@ static esp_err_t style_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t save_wled_handler(httpd_req_t *req)
+{
+    char body[256];
+    if (read_request_body(req, body, sizeof(body)) != ESP_OK) return ESP_FAIL;
+
+    // Checkbox is only present in body when checked
+    bool enabled = strstr(body, "enabled=1") != NULL;
+
+    char host[64] = {0};
+    if (!get_form_field(body, "host", host, sizeof(host))) {
+        strlcpy(host, WLED_DEFAULT_HOST, sizeof(host));
+    }
+
+    char val[8] = {0};
+    uint16_t port = WLED_DEFAULT_PORT;
+    if (get_form_field(body, "port", val, sizeof(val))) {
+        int p = atoi(val);
+        if (p > 0 && p <= 65535) port = (uint16_t)p;
+    }
+
+    uint8_t channel = 0;
+    if (get_form_field(body, "channel", val, sizeof(val))) {
+        int c = atoi(val);
+        if (c >= 0 && c <= 2) channel = (uint8_t)c;
+    }
+
+    if (config_manager_save_wled(enabled, host, port, channel) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
 httpd_handle_t web_server_start(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_uri_handlers = 15;
+    config.max_uri_handlers = 16;
     config.stack_size = 8192;
 
     httpd_handle_t server = NULL;
@@ -437,6 +489,12 @@ httpd_handle_t web_server_start(void)
         .handler = captive_portal_handler, .user_ctx = NULL
     };
     httpd_register_uri_handler(server, &connecttest);
+
+    httpd_uri_t save_wled_uri = {
+        .uri = "/save/wled", .method = HTTP_POST,
+        .handler = save_wled_handler, .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &save_wled_uri);
 
     ESP_LOGI(TAG, "Web server started successfully");
     return server;

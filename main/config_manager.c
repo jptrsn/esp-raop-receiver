@@ -16,6 +16,12 @@ static const char *TAG = "config_manager";
 #define I2S_WS_PIN_KEY    "ws_pin"
 #define I2S_DOUT_PIN_KEY  "dout_pin"
 
+#define WLED_NAMESPACE    "wled_config"
+#define WLED_ENABLED_KEY  "enabled"
+#define WLED_HOST_KEY     "host"
+#define WLED_PORT_KEY     "port"
+#define WLED_CHANNEL_KEY  "channel"
+
 static void generate_default_device_name(char *buf, size_t buf_len)
 {
     uint8_t mac[6];
@@ -83,6 +89,39 @@ esp_err_t config_manager_load(app_config_t *config)
         config->dout_pin = CONFIG_DEFAULT_DOUT_PIN;
         ESP_LOGI(TAG, "Using default I2S pins: BCK=%d WS=%d DOUT=%d",
                  config->bck_pin, config->ws_pin, config->dout_pin);
+    }
+
+    // --- WLED sync ---
+    nvs_handle_t wled_nvs;
+    err = nvs_open(WLED_NAMESPACE, NVS_READONLY, &wled_nvs);
+    ESP_LOGI(TAG, "WLED NVS open result: %s", esp_err_to_name(err));
+    if (err == ESP_OK) {
+        uint8_t enabled = 0;
+        nvs_get_u8(wled_nvs, WLED_ENABLED_KEY, &enabled);
+        config->wled_enabled = (bool)enabled;
+        ESP_LOGI(TAG, "Loaded WLED: enabled=%d host=%s port=%u",
+                config->wled_enabled, config->wled_host, config->wled_port);
+
+        size_t host_len = sizeof(config->wled_host);
+        if (nvs_get_str(wled_nvs, WLED_HOST_KEY, config->wled_host, &host_len) != ESP_OK) {
+            strlcpy(config->wled_host, WLED_DEFAULT_HOST, sizeof(config->wled_host));
+        }
+
+        uint16_t port = WLED_DEFAULT_PORT;
+        nvs_get_u16(wled_nvs, WLED_PORT_KEY, &port);
+        config->wled_port = port;
+
+        uint8_t channel = 0;
+        nvs_get_u8(wled_nvs, WLED_CHANNEL_KEY, &channel);
+        config->wled_channel = channel;
+
+        nvs_close(wled_nvs);
+    } else {
+        ESP_LOGI(TAG, "NVS open error! Failed to read WLED NVS");
+        config->wled_enabled = false;
+        strlcpy(config->wled_host, WLED_DEFAULT_HOST, sizeof(config->wled_host));
+        config->wled_port    = WLED_DEFAULT_PORT;
+        config->wled_channel = 0;
     }
 
     return ESP_OK;
@@ -160,5 +199,30 @@ esp_err_t config_manager_save_audio(int bck_pin, int ws_pin, int dout_pin)
         ESP_LOGE(TAG, "Failed to commit I2S pins: %s", esp_err_to_name(err));
     }
 
+    return err;
+}
+
+esp_err_t config_manager_save_wled(bool enabled, const char *host,
+                                   uint16_t port, uint8_t channel)
+{
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(WLED_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open WLED NVS: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    nvs_set_u8(nvs_handle,  WLED_ENABLED_KEY,  (uint8_t)enabled);
+    nvs_set_str(nvs_handle, WLED_HOST_KEY,      host);
+    nvs_set_u16(nvs_handle, WLED_PORT_KEY,      port);
+    nvs_set_u8(nvs_handle,  WLED_CHANNEL_KEY,   channel);
+
+    err = nvs_commit(nvs_handle);
+    nvs_close(nvs_handle);
+
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Saved WLED config: enabled=%d host=%s port=%u channel=%u",
+                 enabled, host, port, channel);
+    }
     return err;
 }

@@ -114,6 +114,51 @@
                 </button>
             </form>
         </div>
+
+        <!-- WLED Sync Section -->
+        <div class="bg-white rounded-2xl shadow-sm p-6 mb-6">
+            <h2 class="text-lg font-semibold text-gray-700 mb-1">WLED Sync</h2>
+            <p class="text-xs text-gray-400 mb-5">Broadcast audio frequency data to WLED devices for reactive lighting.</p>
+            <form onsubmit="saveSection(event, '/save/wled')">
+                <div class="mb-4">
+                    <label class="flex items-center gap-2 text-sm font-medium text-gray-600 cursor-pointer">
+                        <input type="checkbox" name="enabled" value="1"
+                            {{WLED_ENABLED_CHECKED}}
+                            class="w-4 h-4 accent-blue-500">
+                        Enable WLED Sync
+                    </label>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Destination Host</label>
+                    <input type="text" name="host"
+                        value="{{WLED_HOST}}"
+                        placeholder="239.0.0.1"
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                    <p class="text-xs text-gray-400 mt-1">Multicast (239.0.0.1) reaches all WLED devices. Use a specific IP to target one device.</p>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Port</label>
+                    <input type="number" name="port"
+                        value="{{WLED_PORT}}"
+                        min="1" max="65535"
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                </div>
+                <div class="mb-5">
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Channel</label>
+                    <select name="channel"
+                            class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                        <option value="0" {{WLED_CHANNEL_MONO_SEL}}>Mono (L+R mix)</option>
+                        <option value="1" {{WLED_CHANNEL_LEFT_SEL}}>Left only</option>
+                        <option value="2" {{WLED_CHANNEL_RIGHT_SEL}}>Right only</option>
+                    </select>
+                </div>
+                <button type="submit"
+                        class="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors">
+                    Save WLED
+                </button>
+            </form>
+        </div>
+
         <div class="text-center">
             <a href="/update" class="text-sm text-gray-400 hover:text-gray-600">Firmware Update</a>
         </div>
