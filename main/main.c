@@ -16,6 +16,7 @@
 #include "lwip/dns.h"
 #include "esp_netif.h"
 #include "esp_ota_ops.h"
+#include "wled_sync.h"
 
 static const char *TAG = "main";
 
@@ -79,14 +80,31 @@ static void raop_event_handler(raop_event_t event, void *event_data, void *user_
     }
 }
 
-static void start_airplay_receiver(const char *device_name)
+static void start_airplay_receiver(const app_config_t *app_config)
 {
+    ESP_LOGI(TAG, "WLED enabled: %d, host: %s, port: %u",
+             app_config->wled_enabled, app_config->wled_host, app_config->wled_port);
+
+    if (app_config->wled_enabled) {
+        wled_sync_config_t wled_cfg = {
+            .dest_host    = app_config->wled_host,
+            .dest_port    = app_config->wled_port,
+            .channel_mode = (wled_channel_mode_t)app_config->wled_channel,
+        };
+        esp_err_t err = wled_sync_init(&wled_cfg);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "WLED sync init failed: %s — continuing without it",
+                     esp_err_to_name(err));
+        }
+    }
+
     raop_config_t config = {
-        .device_name     = device_name,
+        .device_name     = app_config->device_name,
         .volume_mode     = RAOP_VOLUME_SOFTWARE,
         .mdns_mode       = RAOP_MDNS_MANAGED,
         .audio_output_cb = audio_output_callback,
         .event_cb        = raop_event_handler,
+        .pcm_tap_cb      = app_config->wled_enabled ? wled_sync_pcm_tap : NULL,
     };
 
     esp_err_t err = raop_init(&config, &raop_handle);
@@ -163,9 +181,6 @@ static void start_dns_server(void)
 
 void app_main(void)
 {
-    app_config_t app_config = {0};
-    config_manager_load(&app_config);
-
     esp_err_t ret;
 
     ESP_LOGI(TAG, "ESP AirPlay Receiver starting...");
@@ -177,6 +192,9 @@ void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    app_config_t app_config = {0};
+    config_manager_load(&app_config);
 
     // Initialize I2S output
     i2s_output_init(app_config.bck_pin, app_config.ws_pin, app_config.dout_pin);
@@ -251,7 +269,7 @@ void app_main(void)
             vTaskDelay(pdMS_TO_TICKS(1000));
 
             // Now start AirPlay receiver
-            start_airplay_receiver(app_config.device_name);
+            start_airplay_receiver(&app_config);
         } else {
             ESP_LOGE(TAG, "Failed to connect to WiFi after 30 seconds");
         }

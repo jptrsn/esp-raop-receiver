@@ -11,6 +11,7 @@ idf_component_register(
         wifi_provisioning
         i2s_output
         esp-raop-receiver
+        wled_sync
         esp_system
         app_update
 )

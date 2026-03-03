@@ -115,6 +115,22 @@ typedef void (*raop_event_cb_t)(
 );
 
 /**
+ * @brief PCM tap callback — called for every decoded audio frame before buffering.
+ *        Provides raw PCM for external processing (e.g. FFT/visualisation).
+ *        Must not block.
+ *
+ * @param data     PCM audio data (16-bit stereo interleaved, 44.1kHz)
+ * @param len      Length in bytes
+ * @param playtime When this frame is scheduled to play (ms, from esp_timer)
+ * @param user_ctx User context pointer from config
+ */
+typedef void (*raop_pcm_tap_cb_t)(
+    const uint8_t *data,
+    size_t len,
+    void *user_ctx
+);
+
+/**
  * @brief RAOP receiver configuration
  */
 typedef struct {
@@ -137,6 +153,7 @@ typedef struct {
     // Optional callbacks
     raop_event_cb_t event_cb;                ///< Event notifications (optional)
     raop_volume_cb_t volume_cb;              ///< Volume control (required if HARDWARE mode)
+    raop_pcm_tap_cb_t pcm_tap_cb;            ///< PCM tap for visualisation (optional, must not block)
 
     // User context
     void *user_ctx;  ///< Passed to all callbacks

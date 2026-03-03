@@ -255,13 +255,28 @@ bool http_parse(int sock, char *method, key_data_t *rkd, char **body, int *len)
 	}
 
 	if (*len) {
-		int size = 0;
+    int size = 0;
 
-		*body = malloc(*len + 1);
-		if (!*body) {
-			LOG_ERROR("failed to allocate body buffer", NULL);
-			return false;
-		}
+    if (*len > 8192) {
+        // Body too large to buffer - read and discard in chunks
+        char discard[256];
+        int remaining = *len;
+        while (remaining > 0) {
+            int to_read = remaining < sizeof(discard) ? remaining : sizeof(discard);
+            int bytes = recv(sock, discard, to_read, 0);
+            if (bytes <= 0) break;
+            remaining -= bytes;
+        }
+        *body = NULL;
+        *len = 0;
+        return true;
+    }
+
+    *body = malloc(*len + 1);
+    if (!*body) {
+        LOG_ERROR("failed to allocate body buffer", NULL);
+        return false;
+    }
 
 		while (size < *len) {
 			int bytes = recv(sock, *body + size, *len - size, 0);

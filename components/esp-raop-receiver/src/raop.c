@@ -551,11 +551,15 @@ static bool handle_rtsp(raop_ctx_t *ctx, int sock)
                 success = ctx->cmd_cb(RAOP_INT_METADATA, metadata.artist, metadata.album, metadata.title, timestamp);
 				free_metadata(&metadata);
 			}
-		} else if (body && ((p = kd_lookup(headers, "Content-Type")) != NULL) && strcasestr(p, "image/jpeg")) {
-            uint32_t timestamp = 0;
-            if ((p = kd_lookup(headers, "RTP-Info")) != NULL) sscanf(p, "%*[^=]=%lu", (unsigned long*)&timestamp);
-            LOG_INFO("[%p]: received JPEG image of %d bytes (ts:%d)", ctx, len, timestamp);
-			ctx->cmd_cb(RAOP_INT_ARTWORK, body, len, timestamp);
+		} else if ((p = kd_lookup(headers, "Content-Type")) != NULL && strcasestr(p, "image/jpeg")) {
+				uint32_t timestamp = 0;
+				if ((p = kd_lookup(headers, "RTP-Info")) != NULL) sscanf(p, "%*[^=]=%lu", (unsigned long*)&timestamp);
+				if (body) {
+						LOG_INFO("[%p]: received JPEG image of %d bytes (ts:%d)", ctx, len, timestamp);
+						ctx->cmd_cb(RAOP_INT_ARTWORK, body, len, timestamp);
+				} else {
+						LOG_INFO("[%p]: JPEG image discarded (too large: %d bytes)", ctx, len);
+				}
 		} else {
 			char *dump = kd_dump(headers);
 			LOG_INFO("Unhandled SET PARAMETER\n%s", dump);
