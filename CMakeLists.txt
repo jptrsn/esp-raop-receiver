@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
 set(PARTITION_CSV_PATH ${CMAKE_SOURCE_DIR}/partitions.csv)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-set(PROJECT_VER "v0.2.1")
+set(PROJECT_VER "v0.2.2")
 project(esp-airsync)
