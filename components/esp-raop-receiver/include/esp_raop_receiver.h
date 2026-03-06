@@ -173,43 +173,26 @@ typedef struct {
 
 /**
  * @brief Initialize RAOP receiver
- *
- * @param config Configuration structure
- * @param out_handle Output handle pointer
- * @return ESP_OK on success, error code otherwise
  */
 esp_err_t raop_init(const raop_config_t *config, raop_handle_t **out_handle);
 
 /**
  * @brief Deinitialize RAOP receiver
- *
- * @param handle RAOP handle
- * @return ESP_OK on success, error code otherwise
  */
 esp_err_t raop_deinit(raop_handle_t *handle);
 
 /**
  * @brief Get current device name
- *
- * @param handle RAOP handle
- * @return Device name string (valid until raop_deinit)
  */
 const char *raop_get_device_name(raop_handle_t *handle);
 
 /**
  * @brief Set device name (updates mDNS advertisement)
- *
- * @param handle RAOP handle
- * @param name New device name
- * @return ESP_OK on success, error code otherwise
  */
 esp_err_t raop_set_device_name(raop_handle_t *handle, const char *name);
 
 /**
  * @brief Get current volume level
- *
- * @param handle RAOP handle
- * @return Volume level (0.0 to 1.0)
  */
 float raop_get_volume(raop_handle_t *handle);
 

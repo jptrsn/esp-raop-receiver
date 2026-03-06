@@ -443,7 +443,7 @@ static void buffer_put_packet(rtp_t *ctx, seq_t seqno, unsigned rtptime, bool fi
     /* if we have received a RECORD with a seqno, then this is the first allowed rtp sequence number
 	 * and we are in RTP_WAIT state. If seqno was 0, then we are waiting for a flush that will tell
 	 * us what should be our first allowed packet but we must accept everything, wait and clean when
-	 * we the it arrives. This means that first packet moves us to RTP_STREAM state where we accept
+	 * it arrives. This means that first packet moves us to RTP_STREAM state where we accept
 	 * frames but wait for the FLUSH. If this was a FLUSH while playing, then we are also in RTP_WAIT
 	 * state but we do have an allowed seqno and we should not accept any frame before we have it */
 
@@ -456,7 +456,7 @@ static void buffer_put_packet(rtp_t *ctx, seq_t seqno, unsigned rtptime, bool fi
 	if (ctx->state == RTP_WAIT) {
 		ctx->ab_write = seqno - 1;
 		ctx->ab_read = ctx->ab_write + 1;
-        ctx->resent_req = ctx->resent_rec = ctx->silent_frames = ctx->discarded = 0;
+		ctx->resent_req = ctx->resent_rec = ctx->silent_frames = ctx->discarded = 0;
 		if (ctx->first_seqno != -1) {
         	LOG_INFO("[%p]: 1st accepted packet:%d, now playing", ctx, seqno);
 			ctx->state = RTP_PLAY;

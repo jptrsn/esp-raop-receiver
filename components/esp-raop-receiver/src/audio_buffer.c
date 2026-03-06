@@ -8,15 +8,17 @@
 
 static const char *TAG = "audio_buffer";
 
-#define BUFFER_FRAMES 1024
+#define BUFFER_FRAMES 512
 #define MAX_FRAME_SIZE 2048
 #define TIMING_THRESHOLD_MS 50  // Max drift before correction
+#define TAP_LOOKAHEAD_MS    150  // Fire PCM tap this many ms before playtime
 
 typedef struct {
     uint8_t data[MAX_FRAME_SIZE];
     size_t len;
     uint32_t playtime;
     bool ready;
+    bool tapped;    // true once the lookahead tap has fired for this frame
 } audio_frame_t;
 
 static struct {
@@ -29,7 +31,7 @@ static struct {
     uint32_t start_time;
     audio_output_callback_t output_cb;
     void *user_ctx;
-    // Optional PCM tap — called at output time, playtime ≈ now
+    // Optional PCM tap — called ~TAP_LOOKAHEAD_MS before playtime
     audio_pcm_tap_cb_t tap_cb;
     void *tap_user_ctx;
 } audio_buf = {0};
@@ -59,6 +61,7 @@ static void audio_output_task(void *arg) {
 
             while (timing_correction.skip_frames > 0 && audio_buf.read_idx != audio_buf.write_idx) {
                 audio_buf.frames[audio_buf.read_idx].ready = false;
+                audio_buf.frames[audio_buf.read_idx].tapped = false;
                 audio_buf.read_idx = (audio_buf.read_idx + 1) % BUFFER_FRAMES;
                 timing_correction.skip_frames--;
             }
@@ -83,8 +86,31 @@ static void audio_output_task(void *arg) {
         if (audio_buf.read_idx != audio_buf.write_idx) {
             frame = &audio_buf.frames[audio_buf.read_idx];
             if (frame->ready) {
-                // Check if it's time to play this frame
                 uint32_t now = gettime_ms();
+
+                // Fire the PCM tap ~TAP_LOOKAHEAD_MS before playtime.
+                // This gives the FFT pipeline time to process and send
+                // the UDP packet so visualisation aligns with audio.
+                if (audio_buf.tap_cb && !frame->tapped &&
+                    frame->playtime > 0 && now >= frame->playtime - TAP_LOOKAHEAD_MS) {
+                    frame->tapped = true;
+                    // Copy data before releasing mutex — tap must not block
+                    uint8_t tap_data[MAX_FRAME_SIZE];
+                    memcpy(tap_data, frame->data, frame->len);
+                    size_t tap_len = frame->len;
+                    xSemaphoreGive(audio_buf.mutex);
+                    audio_buf.tap_cb(tap_data, tap_len, audio_buf.tap_user_ctx);
+                    // Re-acquire and re-check — frame may have been skipped/flushed
+                    xSemaphoreTake(audio_buf.mutex, portMAX_DELAY);
+                    frame = &audio_buf.frames[audio_buf.read_idx];
+                    if (!frame->ready) {
+                        xSemaphoreGive(audio_buf.mutex);
+                        continue;
+                    }
+                    now = gettime_ms();
+                }
+
+                // Check if it's time to play this frame
                 if (now < frame->playtime) {
                     // Too early, wait
                     xSemaphoreGive(audio_buf.mutex);
@@ -97,13 +123,11 @@ static void audio_output_task(void *arg) {
                 size_t len = frame->len;
 
                 frame->ready = false;
+                frame->tapped = false;
                 audio_buf.read_idx = (audio_buf.read_idx + 1) % BUFFER_FRAMES;
 
                 xSemaphoreGive(audio_buf.mutex);
 
-                if (audio_buf.tap_cb) {
-                    audio_buf.tap_cb(data, len, audio_buf.tap_user_ctx);
-                }
                 audio_buf.output_cb(data, len, audio_buf.user_ctx);
             } else {
                 xSemaphoreGive(audio_buf.mutex);
@@ -239,6 +263,7 @@ bool audio_buffer_write(const uint8_t *data, size_t len, uint32_t playtime) {
             frame->len = len;
             frame->playtime = playtime;
             frame->ready = true;
+            frame->tapped = false;
 
             audio_buf.write_idx = next_write;
 
@@ -264,6 +289,7 @@ void audio_buffer_flush(void) {
     // Mark all frames as not ready
     for (int i = 0; i < BUFFER_FRAMES; i++) {
         audio_buf.frames[i].ready = false;
+        audio_buf.frames[i].tapped = false;
     }
 
     audio_buf.read_idx = 0;

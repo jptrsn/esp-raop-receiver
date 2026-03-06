@@ -40,7 +40,7 @@ static bool internal_cmd_cb(raop_internal_event_t event, ...) {
             uint8_t **buffer = va_arg(args, uint8_t**);
             size_t *size = va_arg(args, size_t*);
 
-            *size = 352 * 4 * 1024;
+            *size = 352 * 4 * 512;
             *buffer = heap_caps_malloc(*size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
             if (!*buffer) {
                 ESP_LOGE(TAG, "Failed to allocate RTP buffer");
